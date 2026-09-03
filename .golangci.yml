@@ -1,0 +1,16 @@
+version: "2"
+
+linters:
+  default: none
+  enable:
+    - errcheck
+    - govet
+    - staticcheck
+    - ineffassign
+    - misspell
+    # Note: gosimple was folded into staticcheck in v2.
+
+formatters:
+  enable:
+    - gofmt
+    - goimports

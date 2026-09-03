@@ -1,0 +1,23 @@
+# Binaries
+PingGrid
+PingGrid.exe
+*.exe
+*.test
+*.out
+
+# Coverage / profiling
+coverage.html
+coverage.out
+*.prof
+
+# Vendored deps
+vendor/
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Personal notes
+.notes/
