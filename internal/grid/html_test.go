@@ -152,3 +152,26 @@ func TestDeriveEmbedPath(t *testing.T) {
 	}
 }
 
+func TestRenderHTMLEmptyCells(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Rows = 2
+	cfg.Cols = 4 // 8 slots
+
+	results := []scanner.HostResult{
+		{IP: net.IPv4(192, 168, 1, 1), Status: scanner.StatusOnline},
+		{IP: net.IPv4(192, 168, 1, 2), Status: scanner.StatusOffline},
+	}
+
+	content, err := RenderHTML(cfg, results, 100*time.Millisecond, 0, nil)
+	if err != nil {
+		t.Fatalf("RenderHTML failed: %v", err)
+	}
+
+	htmlStr := string(content)
+	if !strings.Contains(htmlStr, "cell-empty") {
+		t.Errorf("expected cell-empty class in HTML for extra cells")
+	}
+	if !strings.Contains(htmlStr, "All: 2") {
+		t.Errorf("expected HTML stats bar to show All: 2 (scanned hosts)")
+	}
+}

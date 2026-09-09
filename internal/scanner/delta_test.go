@@ -57,4 +57,3 @@ func TestComputeDeltas(t *testing.T) {
 		t.Errorf("expected ANSI formatting codes in colored dropped output: %s", ansiDropped)
 	}
 }
-

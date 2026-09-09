@@ -40,21 +40,18 @@ func RenderASCIIDelta(cfg GridConfig, results []scanner.HostResult, deltas []sca
 	}
 
 	totalSlots := cfg.Rows * cfg.Cols
+	_ = totalSlots
 	var onlineCount, fastCount, slowCount, offlineCount int
 
-	for i := 0; i < totalSlots; i++ {
-		if i < len(results) {
-			switch results[i].Status {
-			case scanner.StatusHighlight:
-				fastCount++
-			case scanner.StatusOnline:
-				onlineCount++
-			case scanner.StatusSlow:
-				slowCount++
-			default:
-				offlineCount++
-			}
-		} else {
+	for i := 0; i < len(results); i++ {
+		switch results[i].Status {
+		case scanner.StatusHighlight:
+			fastCount++
+		case scanner.StatusOnline:
+			onlineCount++
+		case scanner.StatusSlow:
+			slowCount++
+		default:
 			offlineCount++
 		}
 	}
@@ -62,9 +59,15 @@ func RenderASCIIDelta(cfg GridConfig, results []scanner.HostResult, deltas []sca
 	// Build column header indicators
 	sb.WriteString("\n")
 	sb.WriteString("      ")
+	step := 4
+	if cfg.Cols <= 10 {
+		step = 1
+	} else if cfg.Cols%5 == 0 && cfg.Cols%4 != 0 {
+		step = 5
+	}
 	for c := 0; c < cfg.Cols; c++ {
-		if c%4 == 0 {
-			sb.WriteString(fmt.Sprintf("%-2d", c))
+		if c%step == 0 {
+			fmt.Fprintf(&sb, "%-2d", c)
 		} else {
 			sb.WriteString("  ")
 		}
@@ -80,26 +83,31 @@ func RenderASCIIDelta(cfg GridConfig, results []scanner.HostResult, deltas []sca
 	// Render rows
 	for r := 0; r < cfg.Rows; r++ {
 		startIdx := r * cfg.Cols
-		rowLabel := fmt.Sprintf(".%-3d", startIdx)
-		if startIdx < len(results) && results[startIdx].IP != nil {
-			ip4 := results[startIdx].IP.To4()
-			if ip4 != nil {
-				rowLabel = fmt.Sprintf(".%-3d", ip4[3])
+		rowLabel := "    "
+		if startIdx < len(results) {
+			rowLabel = fmt.Sprintf(".%-3d", startIdx)
+			if results[startIdx].IP != nil {
+				ip4 := results[startIdx].IP.To4()
+				if ip4 != nil {
+					rowLabel = fmt.Sprintf(".%-3d", ip4[3])
+				}
 			}
 		}
 
-		sb.WriteString(fmt.Sprintf(" %4s | ", rowLabel))
+		fmt.Fprintf(&sb, " %4s | ", rowLabel)
 
 		for c := 0; c < cfg.Cols; c++ {
 			idx := r*cfg.Cols + c
-			st := scanner.StatusOffline
-			var ipStr string
+			if idx >= len(results) {
+				// Extra cell beyond range: leave with no color / glyph
+				sb.WriteString("  ")
+				continue
+			}
 
-			if idx < len(results) {
-				st = results[idx].Status
-				if results[idx].IP != nil {
-					ipStr = results[idx].IP.String()
-				}
+			st := results[idx].Status
+			var ipStr string
+			if results[idx].IP != nil {
+				ipStr = results[idx].IP.String()
 			}
 
 			d, hasDelta := deltaMap[ipStr]
@@ -119,11 +127,11 @@ func RenderASCIIDelta(cfg GridConfig, results []scanner.HostResult, deltas []sca
 				} else {
 					switch st {
 					case scanner.StatusHighlight:
-						sb.WriteString("* ")
+						sb.WriteString("^ ")
 					case scanner.StatusOnline:
 						sb.WriteString("o ")
 					case scanner.StatusSlow:
-						sb.WriteString("! ")
+						sb.WriteString("* ")
 					default:
 						sb.WriteString("· ")
 					}
@@ -168,23 +176,24 @@ func RenderASCIIDelta(cfg GridConfig, results []scanner.HostResult, deltas []sca
 	sb.WriteString("-+\n\n")
 
 	// Summary Legend
+	totalHosts := len(results)
 	if plain {
-		sb.WriteString(fmt.Sprintf(" Legend: [*] Fast/Gateway: %d  [o] Online: %d  [!] Slow: %d  [·] Offline: %d  (Total: %d)\n",
-			fastCount, onlineCount, slowCount, offlineCount, totalSlots))
+		fmt.Fprintf(&sb, " Legend: [^] Fast/Gateway: %d  [o] Online: %d  [*] Slow: %d  [·] Offline: %d  (Total: %d)\n",
+			fastCount, onlineCount, slowCount, offlineCount, totalHosts)
 		if len(deltas) > 0 {
-			sb.WriteString(fmt.Sprintf(" Deltas: [+] Joined: %d  [-] Dropped: %d  [~] Changed: %d\n",
-				joinedCount, droppedCount, changedCount))
+			fmt.Fprintf(&sb, " Deltas: [+] Joined: %d  [-] Dropped: %d  [~] Changed: %d\n",
+				joinedCount, droppedCount, changedCount)
 		}
 	} else {
-		sb.WriteString(fmt.Sprintf(" Legend: %s■%s Fast/Gateway: %d  %s■%s Online: %d  %s■%s Slow: %d  %s■%s Offline: %d  (Total: %d)\n",
+		fmt.Fprintf(&sb, " Legend: %s■%s Fast/Gateway: %d  %s■%s Online: %d  %s■%s Slow: %d  %s■%s Offline: %d  (Total: %d)\n",
 			ansiRGB(cfg.ColorHighlight), ansiReset, fastCount,
 			ansiRGB(cfg.ColorOnline), ansiReset, onlineCount,
 			ansiRGB(cfg.ColorSlow), ansiReset, slowCount,
 			ansiRGB(cfg.ColorOffline), ansiReset, offlineCount,
-			totalSlots))
+			totalHosts)
 		if len(deltas) > 0 {
-			sb.WriteString(fmt.Sprintf(" Deltas: \x1b[92;1m▲\x1b[0m Joined: %d  \x1b[91;1m▼\x1b[0m Dropped: %d  \x1b[93;1m~\x1b[0m Changed: %d\n",
-				joinedCount, droppedCount, changedCount))
+			fmt.Fprintf(&sb, " Deltas: \x1b[92;1m▲\x1b[0m Joined: %d  \x1b[91;1m▼\x1b[0m Dropped: %d  \x1b[93;1m~\x1b[0m Changed: %d\n",
+				joinedCount, droppedCount, changedCount)
 		}
 	}
 

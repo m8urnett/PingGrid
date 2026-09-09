@@ -131,4 +131,88 @@ func TestGetScheme(t *testing.T) {
 	if _, err := GetScheme("invalid-scheme"); err == nil {
 		t.Errorf("expected error for invalid scheme, got nil")
 	}
+
+	// Verify specific theme palette mappings
+	linenCfg, _ := GetScheme("linen")
+	if linenCfg.ColorOffline != PaletteWarmLinen || linenCfg.ColorOnline != PaletteLinenFg {
+		t.Errorf("linen scheme expected offline PaletteWarmLinen (#f4eeeb) and online PaletteLinenFg (#897e79), got offline %+v, online %+v",
+			linenCfg.ColorOffline, linenCfg.ColorOnline)
+	}
+
+	earthCfg, _ := GetScheme("earth")
+	if earthCfg.ColorOffline != PaletteEarthCellBg || earthCfg.ColorOnline != PaletteSage || earthCfg.ColorHighlight != PaletteTerracotta {
+		t.Errorf("earth scheme expected offline PaletteEarthCellBg (#886d5b), online PaletteSage (#b1b9a0), and highlight PaletteTerracotta (#ab7550), got offline %+v, online %+v, highlight %+v",
+			earthCfg.ColorOffline, earthCfg.ColorOnline, earthCfg.ColorHighlight)
+	}
+
+	mossCfg, _ := GetScheme("moss")
+	if mossCfg.ColorOffline != PaletteMossCellBg || mossCfg.ColorOnline != PaletteSage {
+		t.Errorf("moss scheme expected offline PaletteMossCellBg (#465a47) and online PaletteSage (#b1b9a0), got offline %+v, online %+v",
+			mossCfg.ColorOffline, mossCfg.ColorOnline)
+	}
+}
+
+func TestAutosizeDimensions(t *testing.T) {
+	w, h := AutosizeDimensions(8, 32, 1)
+	if w != 295 || h != 77 {
+		t.Errorf("expected 295x77, got %dx%d", w, h)
+	}
+
+	w16, h16 := AutosizeDimensions(16, 16, 1)
+	if w16 != 151 || h16 != 149 {
+		t.Errorf("expected 151x149, got %dx%d", w16, h16)
+	}
+}
+
+func TestAutoLayout(t *testing.T) {
+	tests := []struct {
+		hosts    int
+		wantRows int
+		wantCols int
+	}{
+		{0, DefaultRows, DefaultCols},
+		{1, 1, 1},
+		{2, 1, 2},
+		{4, 2, 2},
+		{16, 4, 4},
+		{32, 4, 8},
+		{50, 5, 10},
+		{64, 4, 16},
+		{100, 10, 10},
+		{128, 8, 16},
+		{256, 8, 32},
+	}
+
+	for _, tt := range tests {
+		gotR, gotC := AutoLayout(tt.hosts)
+		if gotR != tt.wantRows || gotC != tt.wantCols {
+			t.Errorf("AutoLayout(%d) = (%d, %d), want (%d, %d)", tt.hosts, gotR, gotC, tt.wantRows, tt.wantCols)
+		}
+		if tt.hosts > 0 && gotR*gotC < tt.hosts {
+			t.Errorf("AutoLayout(%d) produced capacity %d < %d hosts", tt.hosts, gotR*gotC, tt.hosts)
+		}
+	}
+}
+
+func TestRenderExtraCellsNoColor(t *testing.T) {
+	cfg := DefaultConfig()
+	results := make([]scanner.HostResult, 10)
+	for i := range results {
+		results[i] = scanner.HostResult{
+			IP:     net.IPv4(192, 168, 1, byte(i+1)),
+			Status: scanner.StatusOffline,
+		}
+	}
+
+	img := Render(cfg, results)
+
+	cCell0 := img.RGBAAt(4, 2)
+	if cCell0 != DefaultColorOffline {
+		t.Errorf("cell 0 expected offline %+v, got %+v", DefaultColorOffline, cCell0)
+	}
+
+	cCell31 := img.RGBAAt(283, 2)
+	if cCell31 != DefaultColorFrame {
+		t.Errorf("cell 31 (extra slot) expected frame color %+v, got %+v", DefaultColorFrame, cCell31)
+	}
 }

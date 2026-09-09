@@ -8,6 +8,7 @@ import (
 	"image/png"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/m8urnett/PingGrid/internal/scanner"
@@ -95,31 +96,31 @@ func GetScheme(name string) (GridConfig, error) {
 		return cfg, nil
 
 	case "earth", "terracotta":
-		// Earth theme: Charcoal, Forest Moss, Sage, Terracotta, Slate Teal
+		// Earth theme: Charcoal frame/border, Earth brown offline (#886d5b), Sage online (#b1b9a0), Terracotta highlight (#ab7550)
 		cfg.ColorFrame = PaletteCharcoal
 		cfg.ColorBorder = PaletteCharcoal
-		cfg.ColorOffline = PaletteMossForest
+		cfg.ColorOffline = PaletteEarthCellBg
 		cfg.ColorOnline = PaletteSage
 		cfg.ColorHighlight = PaletteTerracotta
 		cfg.ColorSlow = PaletteSlateTeal
 		return cfg, nil
 
 	case "moss", "forest":
-		// Moss theme: Forest Moss frame, Charcoal offline, Slate Teal online, Mint highlight
-		cfg.ColorFrame = PaletteMossForest
+		// Moss theme: Charcoal frame/border, Moss green offline (#465a47), Sage online (#b1b9a0), Mint highlight
+		cfg.ColorFrame = PaletteCharcoal
 		cfg.ColorBorder = PaletteCharcoal
-		cfg.ColorOffline = PaletteCharcoal
-		cfg.ColorOnline = PaletteSlateTeal
+		cfg.ColorOffline = PaletteMossCellBg
+		cfg.ColorOnline = PaletteSage
 		cfg.ColorHighlight = PaletteMint
 		cfg.ColorSlow = PaletteTerracotta
 		return cfg, nil
 
 	case "linen", "cream":
-		// Linen theme: Warm Linen frame, Light Gray border, Off-White offline, Moss online, Slate Teal highlight
+		// Linen theme: Warm Linen frame & offline (#f4eeeb), Light Gray border, Linen taupe online/foreground (#897e79), Teal highlight
 		cfg.ColorFrame = PaletteWarmLinen
 		cfg.ColorBorder = PaletteLightGray
-		cfg.ColorOffline = PaletteOffWhite
-		cfg.ColorOnline = PaletteMossForest
+		cfg.ColorOffline = PaletteWarmLinen
+		cfg.ColorOnline = PaletteLinenFg
 		cfg.ColorHighlight = PaletteSlateTeal
 		cfg.ColorSlow = PaletteTerracotta
 		return cfg, nil
@@ -127,6 +128,105 @@ func GetScheme(name string) (GridConfig, error) {
 	default:
 		return cfg, fmt.Errorf("unknown scheme %q: available schemes are: %s", name, strings.Join(AvailableSchemes(), ", "))
 	}
+}
+
+// AutoLayout calculates optimal row and column counts based on total host count.
+// It prioritizes standard networking dimensions (powers of 2 for subnets), clean
+// decimal groupings (e.g. 5x10 for 50 hosts, 10x10 for 100 hosts), and terminal-friendly
+// aspect ratios without unnecessary empty rows.
+func AutoLayout(totalHosts int) (int, int) {
+	if totalHosts <= 0 {
+		return DefaultRows, DefaultCols
+	}
+	if totalHosts == 1 {
+		return 1, 1
+	}
+
+	// Standard CIDR subnet power-of-two mappings
+	switch totalHosts {
+	case 2:
+		return 1, 2
+	case 3:
+		return 1, 3
+	case 4:
+		return 2, 2
+	case 8:
+		return 2, 4
+	case 16:
+		return 4, 4
+	case 32:
+		return 4, 8
+	case 64:
+		return 4, 16
+	case 128:
+		return 8, 16
+	case 256:
+		return 8, 32
+	}
+
+	// Clean decimal multiples (e.g. 50 -> 5x10, 100 -> 10x10)
+	if totalHosts <= 100 && totalHosts%10 == 0 {
+		return totalHosts / 10, 10
+	}
+	if totalHosts <= 50 && totalHosts%5 == 0 {
+		return totalHosts / 5, 5
+	}
+	if totalHosts <= 200 && totalHosts%20 == 0 {
+		return totalHosts / 20, 20
+	}
+
+	// For small counts <= 10
+	if totalHosts <= 10 {
+		if totalHosts <= 5 {
+			return 1, totalHosts
+		}
+		return 2, (totalHosts + 1) / 2
+	}
+
+	// Candidate column counts to evaluate for arbitrary N
+	var candidates []int
+	if totalHosts <= 32 {
+		candidates = []int{8, 10, 6, 4, 16}
+	} else if totalHosts <= 128 {
+		candidates = []int{10, 16, 12, 8, 20}
+	} else if totalHosts <= 256 {
+		candidates = []int{16, 20, 32, 24, 10}
+	} else {
+		candidates = []int{32, 24, 16, 20}
+	}
+
+	bestCols := 16
+	bestRows := (totalHosts + bestCols - 1) / bestCols
+	minWaste := bestRows*bestCols - totalHosts
+
+	for _, c := range candidates {
+		r := (totalHosts + c - 1) / c
+		waste := r*c - totalHosts
+		if waste < minWaste || (waste == minWaste && c >= r && (bestCols < bestRows || c < bestCols)) {
+			minWaste = waste
+			bestCols = c
+			bestRows = r
+		}
+	}
+
+	return bestRows, bestCols
+}
+
+// AutosizeDimensions calculates canvas width and height for a given row and column count,
+// preserving the standard 8x8 square cell size and frame padding proportions.
+func AutosizeDimensions(rows, cols, borderW int) (int, int) {
+	if rows <= 0 {
+		rows = DefaultRows
+	}
+	if cols <= 0 {
+		cols = DefaultCols
+	}
+	if borderW <= 0 {
+		borderW = DefaultBorderWidth
+	}
+	totalGridW := cols*8 + (cols+1)*borderW
+	totalGridH := rows*8 + (rows+1)*borderW
+	return totalGridW + 6, totalGridH + 4
 }
 
 // Render generates the RGBA image from the given config and host results.
@@ -160,7 +260,7 @@ func Render(cfg GridConfig, results []scanner.HostResult) *image.RGBA {
 		padTop  int
 	)
 
-	// If using exact grid.png dimensions, reproduce the exact pixel layout
+	// If using exact default dimensions, reproduce the reference pixel layout
 	if cfg.Width == DefaultWidth && cfg.Height == DefaultHeight && cfg.Rows == DefaultRows && cfg.Cols == DefaultCols {
 		cellW = 8
 		cellH = 8
@@ -168,24 +268,26 @@ func Render(cfg GridConfig, results []scanner.HostResult) *image.RGBA {
 		padLeft = 3
 		padTop = 1
 	} else {
-		// Custom geometry: calculate cell dimensions to fit canvas
+		// Custom geometry: calculate cell dimensions to fit canvas while preserving square cell size
 		availW := cfg.Width - (cfg.Cols+1)*borderW
 		if availW < cfg.Cols {
 			availW = cfg.Cols
 		}
-		cellW = availW / cfg.Cols
-		if cellW < 1 {
-			cellW = 1
-		}
-
 		availH := cfg.Height - (cfg.Rows+1)*borderW
 		if availH < cfg.Rows {
 			availH = cfg.Rows
 		}
-		cellH = availH / cfg.Rows
-		if cellH < 1 {
-			cellH = 1
+		cW := availW / cfg.Cols
+		cH := availH / cfg.Rows
+		cellSize := cW
+		if cH < cellSize {
+			cellSize = cH
 		}
+		if cellSize < 1 {
+			cellSize = 1
+		}
+		cellW = cellSize
+		cellH = cellSize
 
 		totalGridW := cfg.Cols*cellW + (cfg.Cols+1)*borderW
 		totalGridH := cfg.Rows*cellH + (cfg.Rows+1)*borderW
@@ -210,30 +312,35 @@ func Render(cfg GridConfig, results []scanner.HostResult) *image.RGBA {
 	for r := 0; r < cfg.Rows; r++ {
 		for c := 0; c < cfg.Cols; c++ {
 			idx := r*cfg.Cols + c
-			cellColor := cfg.ColorOffline
-
-			if idx < len(results) {
-				switch results[idx].Status {
-				case scanner.StatusOnline:
-					cellColor = cfg.ColorOnline
-				case scanner.StatusHighlight:
-					cellColor = cfg.ColorHighlight
-				case scanner.StatusSlow:
-					cellColor = cfg.ColorSlow
-				default:
-					cellColor = cfg.ColorOffline
-				}
-			}
 
 			x0 := padLeft + borderW + c*(cellW+borderW)
 			y0 := padTop + borderW + r*(cellH+borderW)
 			x1 := x0 + cellW
 			y1 := y0 + cellH
-
 			cellBounds := image.Rect(x0, y0, x1, y1).Intersect(img.Bounds())
-			if !cellBounds.Empty() {
-				draw.Draw(img, cellBounds, &image.Uniform{C: cellColor}, image.Point{}, draw.Src)
+			if cellBounds.Empty() {
+				continue
 			}
+
+			if idx >= len(results) {
+				// When range and grid sizes don't match (extra cells), leave with no color (frame background)
+				draw.Draw(img, cellBounds, &image.Uniform{C: cfg.ColorFrame}, image.Point{}, draw.Src)
+				continue
+			}
+
+			var cellColor color.RGBA
+			switch results[idx].Status {
+			case scanner.StatusOnline:
+				cellColor = cfg.ColorOnline
+			case scanner.StatusHighlight:
+				cellColor = cfg.ColorHighlight
+			case scanner.StatusSlow:
+				cellColor = cfg.ColorSlow
+			default:
+				cellColor = cfg.ColorOffline
+			}
+
+			draw.Draw(img, cellBounds, &image.Uniform{C: cellColor}, image.Point{}, draw.Src)
 		}
 	}
 
@@ -242,6 +349,12 @@ func Render(cfg GridConfig, results []scanner.HostResult) *image.RGBA {
 
 // SavePNG writes the RGBA image to a PNG file at the specified path.
 func SavePNG(img *image.RGBA, path string) error {
+	dir := filepath.Dir(path)
+	if dir != "" && dir != "." {
+		if err := os.MkdirAll(dir, 0750); err != nil {
+			return err
+		}
+	}
 	f, err := os.Create(path)
 	if err != nil {
 		return err

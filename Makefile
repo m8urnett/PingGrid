@@ -1,6 +1,6 @@
 BINARY_NAME := pg
-VERSION := 0.3.0
-BUILD_NUM := 20
+VERSION := 0.6.0
+BUILD_NUM := 37
 GIT_COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null || echo dev)
 BUILD_DATE := $(shell date -u +'%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || echo unknown)
 
@@ -9,12 +9,12 @@ LDFLAGS := -ldflags "\
 	-X github.com/m8urnett/PingGrid/internal/version.GitCommit=$(GIT_COMMIT) \
 	-X github.com/m8urnett/PingGrid/internal/version.BuildDate=$(BUILD_DATE)"
 
-.PHONY: build build-windows build-linux build-darwin build-all run test test-race test-coverage vet lint fmt tidy deps install clean check
+.PHONY: build build-windows build-linux build-darwin build-all run test test-race test-coverage vet lint fmt tidy deps verify-deps vuln check ci audit install clean
 
 build: build-windows
 
 build-windows:
-	go build -trimpath $(LDFLAGS) -o $(BINARY_NAME).exe .
+	go build -trimpath $(LDFLAGS) -o bin/$(BINARY_NAME).exe .
 
 build-linux:
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath $(LDFLAGS) -o bin/$(BINARY_NAME)-linux-amd64 .
@@ -54,10 +54,20 @@ tidy:
 deps:
 	go mod download
 
+verify-deps: tidy deps
+	go mod verify
+
+vuln:
+	govulncheck ./...
+
 install:
 	go install $(LDFLAGS) .
 
 clean:
-	rm -f $(BINARY_NAME) $(BINARY_NAME).exe coverage.out coverage.html grid.png
+	rm -f $(BINARY_NAME) $(BINARY_NAME).exe bin/$(BINARY_NAME)* coverage.out coverage.html grid.png
 
 check: fmt vet test
+
+ci: verify-deps fmt vet lint test vuln
+
+audit: ci

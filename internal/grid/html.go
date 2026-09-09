@@ -22,6 +22,7 @@ type HTMLCell struct {
 	IsUp    bool
 	Tooltip string
 	Delta   string // "joined", "dropped", "changed", or ""
+	IsEmpty bool
 }
 
 // HTMLData holds the complete template data for HTML export.
@@ -35,6 +36,8 @@ type HTMLData struct {
 	CellW           int
 	CellH           int
 	BorderW         int
+	PadLeft         int
+	PadTop          int
 	ColorFrame      string
 	ColorBorder     string
 	ColorOffline    string
@@ -313,8 +316,8 @@ const htmlTemplate = `<!DOCTYPE html>
     gap: {{ .BorderW }}px;
     background-color: var(--color-border);
     position: absolute;
-    top: 1px;
-    left: 3px;
+    top: {{ .PadTop }}px;
+    left: {{ .PadLeft }}px;
     padding: {{ .BorderW }}px;
   }
   .cell {
@@ -322,6 +325,11 @@ const htmlTemplate = `<!DOCTYPE html>
     height: {{ .CellH }}px;
     cursor: pointer;
     transition: transform 0.08s ease, filter 0.08s ease;
+  }
+  .cell.cell-empty {
+    background-color: var(--color-frame) !important;
+    pointer-events: none;
+    cursor: default;
   }
   .cell:hover {
     outline: 1px solid #ffffff;
@@ -490,11 +498,11 @@ const htmlTemplate = `<!DOCTYPE html>
   <div id="canvas-wrapper" class="grid-canvas">
     <div class="grid-table">
       {{- range .Cells }}
-      <div class="cell{{ if .Delta }} cell-{{ .Delta }}{{ end }}" style="background-color: {{ .Color }};"
+      <div class="cell{{ if .Delta }} cell-{{ .Delta }}{{ end }}{{ if .IsEmpty }} cell-empty{{ end }}" style="background-color: {{ .Color }};"
            data-ip="{{ .IP }}" data-status="{{ .Status }}" data-rtt="{{ .RTT }}" data-delta="{{ .Delta }}"
            title="{{ .Tooltip }}"
-           onmouseover="updateHud('{{ .IP }}', '{{ .Status }}', '{{ .RTT }}', '{{ .Delta }}')"
-           onmouseout="resetHud()"></div>
+           {{ if not .IsEmpty }}onmouseover="updateHud('{{ .IP }}', '{{ .Status }}', '{{ .RTT }}', '{{ .Delta }}')"
+           onmouseout="resetHud()"{{ end }}></div>
       {{- end }}
     </div>
   </div>
@@ -618,7 +626,7 @@ const htmlTemplate = `<!DOCTYPE html>
   }
 
   function copyActiveIPs() {
-    var cells = document.querySelectorAll('.cell');
+    var cells = document.querySelectorAll('.cell:not(.cell-empty)');
     var active = [];
     for (var i = 0; i < cells.length; i++) {
       var st = cells[i].getAttribute('data-status');
@@ -664,7 +672,7 @@ const htmlTemplate = `<!DOCTYPE html>
   }
 
   function exportJSON() {
-    var cells = document.querySelectorAll('.cell');
+    var cells = document.querySelectorAll('.cell:not(.cell-empty)');
     var data = [];
     for (var i = 0; i < cells.length; i++) {
       data.push({
@@ -686,7 +694,7 @@ const htmlTemplate = `<!DOCTYPE html>
   }
 
   function exportCSV() {
-    var cells = document.querySelectorAll('.cell');
+    var cells = document.querySelectorAll('.cell:not(.cell-empty)');
     var lines = ['IP,Status,RTT,Delta'];
     for (var i = 0; i < cells.length; i++) {
       lines.push(
@@ -766,8 +774,8 @@ const minimalHtmlTemplate = `<!DOCTYPE html>
     gap: {{ .BorderW }}px;
     background-color: var(--color-border);
     position: absolute;
-    top: 1px;
-    left: 3px;
+    top: {{ .PadTop }}px;
+    left: {{ .PadLeft }}px;
     padding: {{ .BorderW }}px;
   }
   .cell {
@@ -775,6 +783,11 @@ const minimalHtmlTemplate = `<!DOCTYPE html>
     height: {{ .CellH }}px;
     cursor: pointer;
     transition: transform 0.08s ease, filter 0.08s ease;
+  }
+  .cell.cell-empty {
+    background-color: var(--color-frame) !important;
+    pointer-events: none;
+    cursor: default;
   }
   .cell:hover {
     outline: 1px solid #ffffff;
@@ -810,7 +823,7 @@ const minimalHtmlTemplate = `<!DOCTYPE html>
   <div class="grid-canvas">
     <div class="grid-table">
       {{- range .Cells }}
-      <div class="cell{{ if .Delta }} cell-{{ .Delta }}{{ end }}" style="background-color: {{ .Color }};"
+      <div class="cell{{ if .Delta }} cell-{{ .Delta }}{{ end }}{{ if .IsEmpty }} cell-empty{{ end }}" style="background-color: {{ .Color }};"
            data-ip="{{ .IP }}" data-status="{{ .Status }}" data-rtt="{{ .RTT }}" data-delta="{{ .Delta }}"
            title="{{ .Tooltip }}"></div>
       {{- end }}
@@ -847,6 +860,8 @@ func buildHTMLData(cfg GridConfig, results []scanner.HostResult, sweepDuration t
 		cellW   = 8
 		cellH   = 8
 		borderW = cfg.BorderWidth
+		padLeft = 3
+		padTop  = 1
 	)
 	if borderW <= 0 {
 		borderW = 1
@@ -854,14 +869,35 @@ func buildHTMLData(cfg GridConfig, results []scanner.HostResult, sweepDuration t
 
 	if cfg.Width != DefaultWidth || cfg.Height != DefaultHeight || cfg.Rows != DefaultRows || cfg.Cols != DefaultCols {
 		availW := cfg.Width - (cfg.Cols+1)*borderW
-		cellW = availW / cfg.Cols
-		if cellW < 1 {
-			cellW = 1
+		if availW < cfg.Cols {
+			availW = cfg.Cols
 		}
 		availH := cfg.Height - (cfg.Rows+1)*borderW
-		cellH = availH / cfg.Rows
-		if cellH < 1 {
-			cellH = 1
+		if availH < cfg.Rows {
+			availH = cfg.Rows
+		}
+		cW := availW / cfg.Cols
+		cH := availH / cfg.Rows
+		cellSize := cW
+		if cH < cellSize {
+			cellSize = cH
+		}
+		if cellSize < 1 {
+			cellSize = 1
+		}
+		cellW = cellSize
+		cellH = cellSize
+
+		totalGridW := cfg.Cols*cellW + (cfg.Cols+1)*borderW
+		totalGridH := cfg.Rows*cellH + (cfg.Rows+1)*borderW
+
+		padLeft = (cfg.Width - totalGridW) / 2
+		if padLeft < 0 {
+			padLeft = 0
+		}
+		padTop = (cfg.Height - totalGridH) / 2
+		if padTop < 0 {
+			padTop = 0
 		}
 	}
 
@@ -871,53 +907,66 @@ func buildHTMLData(cfg GridConfig, results []scanner.HostResult, sweepDuration t
 	var onlineCount, fastCount, slowCount, offlineCount int
 
 	for i := 0; i < totalSlots; i++ {
+		if i >= len(results) {
+			cells[i] = HTMLCell{
+				Index:   i,
+				IP:      "",
+				Status:  "",
+				Color:   "transparent",
+				RTT:     "",
+				IsUp:    false,
+				Tooltip: "",
+				Delta:   "",
+				IsEmpty: true,
+			}
+			continue
+		}
+
 		var (
 			ipStr    = fmt.Sprintf("Slot %d", i)
-			status   = "Offline"
-			cellCol  = HexString(cfg.ColorOffline)
+			status   string
+			cellCol  string
 			rttStr   = "no reply"
 			isUp     = false
 			deltaTag = ""
 		)
 
-		if i < len(results) {
-			res := results[i]
+		res := results[i]
+		if res.IP != nil {
 			ipStr = res.IP.String()
+		}
 
-			if d, ok := deltaMap[ipStr]; ok {
-				deltaTag = string(d.Kind)
-			}
+		if d, ok := deltaMap[ipStr]; ok {
+			deltaTag = string(d.Kind)
+		}
 
-			switch res.Status {
-			case scanner.StatusOnline:
-				status = "Online"
-				cellCol = HexString(cfg.ColorOnline)
-				rttStr = res.RTT.String()
-				isUp = true
-				onlineCount++
+		switch res.Status {
+		case scanner.StatusOnline:
+			status = "Online"
+			cellCol = HexString(cfg.ColorOnline)
+			rttStr = scanner.FormatDurationMS(res.RTT)
+			isUp = true
+			onlineCount++
 
-			case scanner.StatusHighlight:
-				status = "Fast / Gateway"
-				cellCol = HexString(cfg.ColorHighlight)
-				rttStr = res.RTT.String()
-				isUp = true
-				fastCount++
-				onlineCount++
+		case scanner.StatusHighlight:
+			status = "Fast / Gateway"
+			cellCol = HexString(cfg.ColorHighlight)
+			rttStr = scanner.FormatDurationMS(res.RTT)
+			isUp = true
+			fastCount++
+			onlineCount++
 
-			case scanner.StatusSlow:
-				status = "Slow Latency"
-				cellCol = HexString(cfg.ColorSlow)
-				rttStr = res.RTT.String()
-				isUp = true
-				slowCount++
-				onlineCount++
+		case scanner.StatusSlow:
+			status = "Slow Latency"
+			cellCol = HexString(cfg.ColorSlow)
+			rttStr = scanner.FormatDurationMS(res.RTT)
+			isUp = true
+			slowCount++
+			onlineCount++
 
-			default:
-				status = "Offline"
-				cellCol = HexString(cfg.ColorOffline)
-				offlineCount++
-			}
-		} else {
+		default:
+			status = "Offline"
+			cellCol = HexString(cfg.ColorOffline)
 			offlineCount++
 		}
 
@@ -935,6 +984,7 @@ func buildHTMLData(cfg GridConfig, results []scanner.HostResult, sweepDuration t
 			IsUp:    isUp,
 			Tooltip: tooltip,
 			Delta:   deltaTag,
+			IsEmpty: false,
 		}
 	}
 
@@ -948,18 +998,20 @@ func buildHTMLData(cfg GridConfig, results []scanner.HostResult, sweepDuration t
 		CellW:           cellW,
 		CellH:           cellH,
 		BorderW:         borderW,
+		PadLeft:         padLeft,
+		PadTop:          padTop,
 		ColorFrame:      HexString(cfg.ColorFrame),
 		ColorBorder:     HexString(cfg.ColorBorder),
 		ColorOffline:    HexString(cfg.ColorOffline),
 		ColorOnline:     HexString(cfg.ColorOnline),
 		ColorHigh:       HexString(cfg.ColorHighlight),
 		ColorSlow:       HexString(cfg.ColorSlow),
-		Total:           totalSlots,
+		Total:           len(results),
 		Online:          onlineCount,
 		Fast:            fastCount,
 		Slow:            slowCount,
 		Offline:         offlineCount,
-		Duration:        sweepDuration.Round(time.Millisecond).String(),
+		Duration:        scanner.FormatDurationMS(sweepDuration),
 		RefreshInterval: refreshInterval,
 		JoinedCount:     joinedCount,
 		DroppedCount:    droppedCount,

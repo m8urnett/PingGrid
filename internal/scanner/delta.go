@@ -31,14 +31,15 @@ func (d HostDelta) String() string {
 
 // Format returns a formatted string representation of the delta, with optional ANSI color codes.
 func (d HostDelta) Format(plain bool) string {
+	rttStr := FormatDurationMS(d.RTT)
 	if plain {
 		switch d.Kind {
 		case DeltaJoined:
-			return fmt.Sprintf("[+] %s came online (%s, %v)", d.IP, d.New, d.RTT)
+			return fmt.Sprintf("[+] %s came online (%s, %s)", d.IP, d.New, rttStr)
 		case DeltaDropped:
 			return fmt.Sprintf("[-] %s went offline", d.IP)
 		case DeltaChanged:
-			return fmt.Sprintf("[~] %s performance changed (%s -> %s, %v)", d.IP, d.Old, d.New, d.RTT)
+			return fmt.Sprintf("[~] %s performance changed (%s -> %s, %s)", d.IP, d.Old, d.New, rttStr)
 		default:
 			return fmt.Sprintf("    %s unchanged", d.IP)
 		}
@@ -46,16 +47,15 @@ func (d HostDelta) Format(plain bool) string {
 
 	switch d.Kind {
 	case DeltaJoined:
-		return fmt.Sprintf("\x1b[92;1m[+]\x1b[0m \x1b[1m%s\x1b[0m \x1b[32mcame online\x1b[0m (%s, %v)", d.IP, d.New, d.RTT)
+		return fmt.Sprintf("\x1b[92;1m[+]\x1b[0m \x1b[1m%s\x1b[0m \x1b[32mcame online\x1b[0m (%s, %s)", d.IP, d.New, rttStr)
 	case DeltaDropped:
 		return fmt.Sprintf("\x1b[91;1m[-]\x1b[0m \x1b[1m%s\x1b[0m \x1b[31mwent offline\x1b[0m", d.IP)
 	case DeltaChanged:
-		return fmt.Sprintf("\x1b[93;1m[~]\x1b[0m \x1b[1m%s\x1b[0m \x1b[33mperformance changed\x1b[0m (%s -> %s, %v)", d.IP, d.Old, d.New, d.RTT)
+		return fmt.Sprintf("\x1b[93;1m[~]\x1b[0m \x1b[1m%s\x1b[0m \x1b[33mperformance changed\x1b[0m (%s -> %s, %s)", d.IP, d.Old, d.New, rttStr)
 	default:
 		return fmt.Sprintf("    %s unchanged", d.IP)
 	}
 }
-
 
 // ComputeDeltas compares previous sweep results with current sweep results and returns detected changes.
 func ComputeDeltas(prev, curr []HostResult) []HostDelta {

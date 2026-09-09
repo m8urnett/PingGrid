@@ -10,20 +10,32 @@ Runs natively on **Windows**, **Linux**, and **macOS**.
 # Sweep target subnet (positional target syntax)
 pg.exe 192.168.1.0/24
 
+# Sweep with 3 ping attempts per host for maximum accuracy
+pg.exe 192.168.1.0/24 -p 3
+
 # Continuous live monitoring: refresh sweep every 5 seconds (auto-refreshes terminal & HTML)
 pg.exe 192.168.1.0/24 -R 5s
 
+# Output sorted list of host names and ping times (stdout)
+pg.exe 192.168.1.0/24 -l
+
+# Save sorted list of host names and ping times to file
+pg.exe 192.168.1.0/24 -l hosts.txt
+
 # Standalone interactive HTML dashboard (filters, clipboard copy, zoom, HUD)
-pg.exe 192.168.1.0/24 --html -f dashboard.html
+pg.exe 192.168.1.0/24 --html dashboard.html
 
 # Minimal embeddable HTML for iframes (zero buttons, transparent, border-fit)
-pg.exe 192.168.1.0/24 --iframe -f embed.html
+pg.exe 192.168.1.0/24 --iframe embed.html
+
+# Generate PNG activity grid image
+pg.exe 192.168.1.0/24 --png matrix.png
 
 # Plain monochrome ASCII mode for simple terminals or automation
 pg.exe 192.168.1.0/24 --plain
 
-# Output as PowerShell-friendly JSON summary
-pg.exe 192.168.1.0/24 --ps
+# Output machine-readable JSON summary
+pg.exe 192.168.1.0/24 --json
 
 # Display help and CLI usage (pg.exe without parameters also displays help)
 pg.exe /?
@@ -31,7 +43,7 @@ pg.exe /?
 
 ## Grid Layout & Color Representation
 
-By default, PingGrid generates an activity grid matching the layout of `grid.png` (**295 &times; 77 px**, **8 rows &times; 32 columns** = 256 cells, representing a standard `/24` subnet).
+PingGrid dynamically adapts its grid geometry to match the scanned IP range. For a standard `/24` subnet (256 hosts), it defaults to **8 rows &times; 32 columns** (**295 &times; 77 px**). For custom or smaller ranges (e.g. 50 hosts), rows and columns auto-size dynamically (e.g. **5 rows &times; 10 columns**) while maintaining constant 8&times;8 px square cell proportions across PNG, HTML, and terminal outputs.
 
 ### Color Palette & Meanings
 
@@ -44,20 +56,20 @@ The default scheme (`--scheme dark`) maps these colors to:
 | **Outer Frame & Dividers** | `#2c2c2c` | `+ - \|` | Canvas bezel, borders, and column dividers. |
 | **Offline / Unresponsive** | `#404e41` | `·` | Scanned IP did not reply within timeout. |
 | **Active / Online** | `#4d86a2` | `o` | Host responded normally (< `--slow-threshold`). |
-| **Slow / Degraded** | `#ab7550` | `!` | High latency node (&ge; `--slow-threshold`, default 100ms). |
-| **Fast / Highlight** | `#e4f9d4` | `*` | Ultra-low latency (< `--fast-threshold`, default 20ms) or gateway IP. |
+| **Slow / Degraded** | `#ab7550` | `*` | High latency node (&ge; `--slow-threshold`, default 100ms). |
+| **Highlight** | `#e4f9d4` | `^` | Gateway or key infrastructure address. |
 
 ### Built-in Schemes
 
-Use `--scheme` / `-s` to switch between preset color combinations:
+Use `--scheme` / `-s` (or `/scheme`, `-scheme`, `/s`) to switch between preset color combinations:
 
 - **`dark`** (default): Charcoal frame/border (`#2c2c2c`), Moss offline (`#404e41`), Teal online (`#4d86a2`), Terracotta slow (`#ab7550`), Mint fast (`#e4f9d4`).
 - **`light`**: Warm Linen frame (`#f4eeeb`), Light Gray border (`#efefef`), Pure Off-White offline (`#fcfcfc`), Teal online (`#4d86a2`), Charcoal slow (`#2c2c2c`), Terracotta fast (`#ab7550`).
-- **`earth`**: Charcoal frame (`#2c2c2c`), Moss offline (`#404e41`), Sage online (`#b1b9a0`), Slate Teal slow (`#4d86a2`), Terracotta fast (`#ab7550`).
-- **`moss`**: Moss frame (`#404e41`), Charcoal border/offline (`#2c2c2c`), Teal online (`#4d86a2`), Terracotta slow (`#ab7550`), Mint fast (`#e4f9d4`).
-- **`linen`**: Warm Linen frame (`#f4eeeb`), Light Gray border (`#efefef`), Off-White offline (`#fcfcfc`), Moss online (`#404e41`), Terracotta slow (`#ab7550`), Teal fast (`#4d86a2`).
+- **`earth`**: Charcoal frame/border (`#2c2c2c`), Earth Brown offline (`#886d5b`), Sage online (`#b1b9a0`), Terracotta fast (`#ab7550`), Slate Teal slow (`#4d86a2`).
+- **`moss`**: Charcoal frame/border (`#2c2c2c`), Forest Moss offline (`#465a47`), Sage online (`#b1b9a0`), Mint fast (`#e4f9d4`), Terracotta slow (`#ab7550`).
+- **`linen`**: Warm Linen frame & offline cell background (`#f4eeeb`), Light Gray border (`#efefef`), Linen Taupe online foreground (`#897e79`), Teal fast (`#4d86a2`), Terracotta slow (`#ab7550`).
 
-All dimensions, grid arrangements, and individual colors can also be overridden via CLI flags.
+All dimensions, grid arrangements, and individual colors can also be overridden via CLI flags. All options and switches accept `-`, `--`, and `/` interchangeably (e.g. `/html`, `-html`, `--html`, `/p 3`, `-p 3`, `/r 5`, `/s moss`). Directed subnet broadcast addresses (e.g. `x.x.x.255`) and `255.255.255.255` are automatically protected from pinging. All latency measurements are reported in milliseconds (`ms`). Hex color flags accept values with or without the leading `#` (e.g. `--color-online 4d86a2` or `--color-online "#4d86a2"`).
 
 ## Command-Line Options
 
@@ -65,43 +77,49 @@ All dimensions, grid arrangements, and individual colors can also be overridden 
 Usage:
   pg [target] [flags]
 
-Flags:
-      --text                      Output console ASCII text grid (default)
-      --json                      Output machine-readable JSON summary
-      --summary                   Output single-line text summary
-      --html                      Generate standalone interactive HTML dashboard (defaults to grid.html)
-      --iframe                    Generate embeddable minimal HTML for iframes (defaults to grid-embed.html; alias: --embed)
-  -o, --output string             Output format: text, json, summary, html, iframe (default "text")
-  -s, --scheme string             Built-in color scheme: dark, light, earth, moss, linen (default "dark")
-  -t, --target string             Target subnet CIDR (e.g. 192.168.1.0/24) or base IP (auto-detects local subnet if omitted)
-  -R, --refresh duration          Continuous sweep refresh interval (e.g. 5s, 10s; 0 runs once)
-  -r, --rows int                  Number of grid rows (default 8)
-  -c, --cols int                  Number of grid columns (default 32)
-  -W, --width int                 Output image width in pixels (default 295)
-  -H, --height int                Output image height in pixels (default 77)
-      --border-width int          Grid divider border width in pixels (default 1)
-  -f, --output-file string        Path for output file (e.g. grid.html, embed.html, or .png)
-      --color-offline string      Hex color for offline hosts (default "#404e41")
-      --color-online string       Hex color for active hosts (default "#4d86a2")
-      --color-highlight string    Hex color for fast/highlight hosts (default "#e4f9d4")
-      --color-slow string         Hex color for slow-responding hosts (default "#ab7550")
-      --color-border string       Hex color for cell divider lines (default "#2c2c2c")
-      --color-frame string        Hex color for outer canvas frame (default "#2c2c2c")
-      --concurrency int           Concurrent ping workers (default 128)
-      --fast-threshold duration   Latency threshold for highlight color (default 20ms)
-      --slow-threshold duration   Latency threshold for slow/degraded color (default 100ms)
-      --gateway string            Optional gateway IP to always highlight
-  -v, --version                   Display version information and exit
+Output Options:
+  -l, --list [file]              Output sorted list of host names and ping times (optionally write to file)
+      --html [file]              Generate standalone interactive HTML dashboard (default: grid.html)
+      --iframe [file]            Generate embeddable minimal HTML for iframes (default: grid-embed.html)
+      --png [file]               Generate PNG activity grid image (default: grid.png)
+      --json [file]              Output machine-readable JSON summary (optionally write to file)
+      --summary [file]           Output single-line text summary (optionally write to file)
+      --ascii [file]             Output console ASCII text grid (optionally write to file)
 
-Standard Flags:
-      --ps                        Enable PowerShell mode (implies --json --plain)
-      --plain                     Disable ANSI formatting and colors (monochrome glyphs)
-      --timeout duration          Per-host ping timeout (default 500ms)
-      --quiet                     Suppress progress output
-      --verbose                   Show per-host latency details with microsecond precision
+Scan Options:
+  -p, --pings <count>            Number of ping attempts per host (default 3)
+  -R, --refresh <interval>       Continuous sweep refresh interval (e.g. 5s, 10s; 0 runs once)
+      --concurrency <workers>    Number of concurrent ping workers (default 128)
+      --timeout <duration>       Ping timeout duration per host (default 150ms RFC1918/LAN, 400ms WAN)
+      --slow-threshold <duration> Latency threshold for slow/degraded color (default 100ms)
+
+Grid Layout Options:
+  -r, --rows <count>             Number of grid rows (auto-sized to fit IP range if omitted)
+  -c, --cols <count>             Number of grid columns (auto-sized to fit IP range if omitted)
+  -W, --width <pixels>           Output image width in pixels (auto-sized if omitted)
+  -H, --height <pixels>          Output image height in pixels (auto-sized if omitted)
+      --border-width <pixels>    Grid divider border width in pixels (default 1)
+
+Color & Styling Options:
+  -s, --scheme <name>            Built-in color scheme (dark, light, earth, moss, linen) (default "dark")
+      --color-offline <color>    Hex color for offline/unresponsive hosts (with or without #)
+      --color-online <color>     Hex color for active/online hosts (with or without #)
+      --color-highlight <color>  Hex color for fast/highlight hosts (with or without #)
+      --color-slow <color>       Hex color for slow-responding hosts (with or without #)
+      --color-border <color>     Hex color for cell divider lines (with or without #)
+      --color-frame <color>      Hex color for outer canvas frame (with or without #)
+
+Standard Options:
+      --version, --ver        Display version information and exit
+  -v, --verbose               Enable detailed diagnostic output
+  -q, --quiet                 Suppress non-essential console output
+  -h, --help                  Display help and exit
+      --examples              Display detailed usage examples and target formats
+      --plain                 Plain monochrome ASCII mode without ANSI colors
 
 Help & Usage:
   Running pg without arguments displays full usage.
+  Run 'pg --examples' to see detailed examples and all supported IP range formats.
   Standard Windows and Unix help switches are supported: /?, -?, /h, -h, --help, /help, help.
 ```
 
@@ -123,6 +141,9 @@ Add-Content $PROFILE "`npg.exe completion powershell | Out-String | Invoke-Expre
 ```sh
 # Sweep target subnet and display ASCII activity matrix to console (no files generated)
 pg.exe 10.8.0.1/24
+
+# Sweep with 3 ping attempts per host for maximum accuracy
+pg.exe 10.8.0.1/24 -p 3
 ```
 
 ### Continuous Live Subnet Monitor
@@ -131,47 +152,75 @@ pg.exe 10.8.0.1/24
 pg.exe -R 3s
 ```
 
+### Sorted Host List (List Mode)
+```sh
+# Sweep target subnet and print sorted list of host names and ping times to console:
+pg.exe 10.8.0.1/24 -l
+
+# Save sorted host list to file (automatically plain text without ANSI colors):
+pg.exe 10.8.0.1/24 --list hosts.txt
+```
+
 ### Standalone Interactive HTML Dashboard
 ```sh
 # Generate standalone interactive HTML dashboard (defaults to grid.html)
 pg.exe 10.8.0.1/24 --html
 
-# Specify a custom destination filename:
-pg.exe 10.8.0.1/24 --html -f dashboard.html
+# Specify a custom destination filename directly on the option:
+pg.exe 10.8.0.1/24 --html dashboard.html
 ```
 
 ### Embeddable Minimal HTML for Iframes
 ```sh
 # Generate minimal button-free HTML ready for embedding in dashboards or wikis (defaults to grid-embed.html)
-pg.exe 10.8.0.1/24 --iframe -f embed.html
+pg.exe 10.8.0.1/24 --iframe embed.html
+```
+
+### High-Resolution PNG Image
+```sh
+# Generate PNG activity grid image (defaults to grid.png)
+pg.exe 10.8.0.1/24 --png
+
+# Specify custom PNG destination filename:
+pg.exe 10.8.0.1/24 --png matrix.png
 ```
 
 ### Structured Output (JSON / Summary)
 ```sh
-# Output machine-readable JSON summary for automation and pipelines:
+# Output machine-readable JSON summary to stdout:
 pg.exe 10.8.0.1/24 --json
 
-# Output single-line summary:
-pg.exe 10.8.0.1/24 --summary
+# Output JSON summary directly to file:
+pg.exe 10.8.0.1/24 --json results.json
+
+# Output single-line summary (stdout or file):
+pg.exe 10.8.0.1/24 --summary summary.txt
 ```
 
 ### Custom Grid Dimensions and Colors
 ```sh
 # 16x16 grid (256 addresses) rendered as a 512x512 PNG with custom colors
-pg.exe -t 10.0.0.0/24 -r 16 -c 16 -W 512 -H 512 --color-online "#4CAF50" -f lan-matrix.png
+pg.exe 10.0.0.0/24 -r 16 -c 16 -W 512 -H 512 --color-online "#4CAF50" --png lan-matrix.png
 ```
 
 ### Verbose Scan with Microsecond Resolution
 ```sh
-pg.exe --target 10.10.1.0/24 --verbose --timeout 1s
+pg.exe 10.10.1.0/24 --verbose --timeout 1s -p 2
 ```
 
-## Output Formats: HTML, Embed, Text, & JSON
+## Output Formats: List, HTML, Embed, PNG, Text, & JSON
 
-PingGrid provides dedicated flags to select the desired output format:
+PingGrid provides dedicated options to select and configure the desired output:
 
-1. **Standalone Dashboard (`--html`, `-o html`)**:
+1. **Sorted Host List (`-l, --list [file]`)**:
+   - Produces a columnar, sorted inventory of responding hosts with reverse DNS hostnames, IP addresses, round-trip times (RTT), and latency classifications.
+   - Sorted ascending by ping latency (lowest/fastest ping first), with tie-breaking by IP.
+   - Automatically performs concurrent, timeout-bounded reverse DNS lookups for responding hosts without slowing down scans.
+   - Outputs directly to console with ANSI status highlights, or to a clean plain text file without escape sequences when a filename is specified.
+
+2. **Standalone Dashboard (`--html [file]`)**:
    - Designed for full-screen browser viewing and interactive analysis.
+   - Saves to `grid.html` by default, or to any custom filename passed directly to `--html`.
    - **Header Action Buttons**:
      - **Refresh (`⟳ Refresh`)**: Instant manual reload trigger for the dashboard.
      - **Copy Active IPs (`📋 Copy Active (X)`)**: One-click clipboard export of responding host IPs with dynamic count and visual confirmation.
@@ -183,12 +232,23 @@ PingGrid provides dedicated flags to select the desired output format:
    - **Live State Delta Log**: Detailed collapsible tracking card highlighting newly joined (`+`), dropped (`-`), or latency-shifted (`~`) hosts across sweeps.
    - **Countdown & Pause**: Live countdown ticker with pause/resume button when running in continuous monitoring mode (`-R`).
 
-2. **Minimal Embed / Iframe Page (`-o iframe`)**:
+2. **Minimal Embed / Iframe Page (`--iframe [file]`, `--embed [file]`)**:
    - Designed strictly for embedding in `<iframe>` containers within dashboards or wikis (e.g. `<iframe src="embed.html"></iframe>`).
+   - Saves to `grid-embed.html` by default, or to any custom filename passed directly to `--iframe`.
    - **Zero Buttons**: No zoom buttons, no pause buttons, no filter pills, and no action buttons.
    - **Seamless Fitting**: Transparent background and zero-padding frame wrapping only the pixel-exact activity canvas.
    - **Native Tooltips & Delta Animations**: Hover tooltips and keyframe animations (`joinPulse`, `dropBlink`) preserved.
    - **Silent Auto-Reload**: Automatically refreshes in sync with the sweep loop when `-R` is configured.
+
+3. **PNG Activity Grid Image (`--png [file]`)**:
+   - Generates a standalone PNG image representing the network state with pixel-exact square cells and outer frame.
+   - Saves to `grid.png` by default, or to any custom filename passed directly to `--png`.
+
+4. **Structured JSON Summary (`--json [file]`)**:
+   - Emits structured JSON summary metrics to stdout or directly to a file.
+
+5. **Console ASCII Matrix (`--ascii [file]`)**:
+   - Visual ASCII grid output rendered directly to the terminal or saved to a text file.
 
 ## Platform Architecture
 
@@ -220,6 +280,9 @@ Use the included native PowerShell build script:
 
 # Build all platform binaries (Windows, Linux, macOS arm64/amd64):
 .\build.ps1 -Target all
+
+# Run full supply-chain, test, lint, and vulnerability pipeline:
+.\build.ps1 -Verify
 ```
 
 ### Building with Make (Linux / macOS / GNU Make)
@@ -237,11 +300,17 @@ make build-darwin
 # Cross-compile all targets
 make build-all
 
-# Run full test suite
-make test
-
-# Format, vet, and verify
+# Fast local check (format, vet, unit tests - no network needed)
 make check
+
+# Verify module checksums against go.sum (SC-0002)
+make verify-deps
+
+# Scan dependencies for known CVE vulnerabilities via Go vulnerability DB (SC-0004)
+make vuln
+
+# Full CI / supply-chain audit pipeline (verify-deps + fmt + vet + lint + test + vuln)
+make ci
 ```
 
 ### Direct Go CLI Build
@@ -282,5 +351,5 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o pg-linux-amd64 .
 
 ## License
 
-See [LICENSE](file:///c:/Users/mark/Proton%20Drive/m8urn/My%20files/(Dev)/PingGrid/LICENSE).
+This software is dedicated to the public domain under [The Unlicense](file:///c:/Users/mark/Proton%20Drive/m8urn/My%20files/(Dev)/PingGrid/LICENSE). You are free to copy, modify, publish, use, compile, sell, or distribute this software for any purpose.
 

@@ -30,10 +30,10 @@ func TestRenderASCII(t *testing.T) {
 
 	// Test Plain ASCII mode
 	plainOutput := RenderASCII(cfg, results, true)
-	if !strings.Contains(plainOutput, "Legend: [*] Fast/Gateway: 1  [o] Online: 1  [!] Slow: 1  [·] Offline: 29  (Total: 32)") {
+	if !strings.Contains(plainOutput, "Legend: [^] Fast/Gateway: 1  [o] Online: 1  [*] Slow: 1  [·] Offline: 29  (Total: 32)") {
 		t.Errorf("unexpected plain legend: %s", plainOutput)
 	}
-	if !strings.Contains(plainOutput, "* ") || !strings.Contains(plainOutput, "o ") || !strings.Contains(plainOutput, "! ") {
+	if !strings.Contains(plainOutput, "^ ") || !strings.Contains(plainOutput, "o ") || !strings.Contains(plainOutput, "* ") {
 		t.Errorf("expected plain glyphs in output: %s", plainOutput)
 	}
 
@@ -157,4 +157,76 @@ func TestASCIIBorderAlignment(t *testing.T) {
 	}
 }
 
+func TestRenderASCIIExtraSlotsNoColor(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Rows = 2
+	cfg.Cols = 4 // 8 slots total
 
+	// Only 3 hosts provided
+	results := []scanner.HostResult{
+		{IP: net.IPv4(192, 168, 1, 1), Status: scanner.StatusOnline},
+		{IP: net.IPv4(192, 168, 1, 2), Status: scanner.StatusHighlight},
+		{IP: net.IPv4(192, 168, 1, 3), Status: scanner.StatusOffline},
+	}
+
+	plain := RenderASCII(cfg, results, true)
+	if !strings.Contains(plain, "Legend: [^] Fast/Gateway: 1  [o] Online: 1  [*] Slow: 0  [·] Offline: 1  (Total: 3)") {
+		t.Errorf("expected legend to count only actual 3 hosts, got:\n%s", plain)
+	}
+
+	lines := strings.Split(plain, "\n")
+	var rowLines []string
+	for _, l := range lines {
+		if strings.Contains(l, "|") && !strings.Contains(l, "+") {
+			rowLines = append(rowLines, l)
+		}
+	}
+	if len(rowLines) != 2 {
+		t.Fatalf("expected 2 grid rows, got %d", len(rowLines))
+	}
+	if !strings.Contains(rowLines[0], "o ^ ·   |") {
+		t.Errorf("expected first row to end with empty cell space, got: %q", rowLines[0])
+	}
+	if !strings.Contains(rowLines[1], "|         |") {
+		t.Errorf("expected second row to have all empty spaces, got: %q", rowLines[1])
+	}
+}
+
+func TestRenderASCIIAutoLayout50(t *testing.T) {
+	rows, cols := AutoLayout(50)
+	if rows != 5 || cols != 10 {
+		t.Fatalf("expected 5x10 for 50 hosts, got %dx%d", rows, cols)
+	}
+
+	cfg := DefaultConfig()
+	cfg.Rows = rows
+	cfg.Cols = cols
+
+	results := make([]scanner.HostResult, 50)
+	for i := range results {
+		results[i] = scanner.HostResult{
+			IP:     net.IPv4(192, 168, 1, byte(i+1)),
+			Status: scanner.StatusOffline,
+		}
+	}
+	results[0].Status = scanner.StatusOnline
+	results[49].Status = scanner.StatusHighlight
+
+	plain := RenderASCII(cfg, results, true)
+	lines := strings.Split(plain, "\n")
+	var rowLines []string
+	for _, l := range lines {
+		if strings.Contains(l, "|") && !strings.Contains(l, "+") {
+			rowLines = append(rowLines, l)
+		}
+	}
+	if len(rowLines) != 5 {
+		t.Fatalf("expected exactly 5 rows for 50 hosts, got %d", len(rowLines))
+	}
+	if !strings.Contains(rowLines[0], ".1   | o") {
+		t.Errorf("expected row 0 starting with .1 and 'o', got: %s", rowLines[0])
+	}
+	if !strings.Contains(rowLines[4], "^ |") {
+		t.Errorf("expected row 4 ending with '^', got: %s", rowLines[4])
+	}
+}

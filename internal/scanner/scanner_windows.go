@@ -34,13 +34,14 @@ func NewPlatformPinger() Pinger {
 	p.pool.New = func() any {
 		h, _, _ := procIcmpCreateFile.Call()
 		if h == 0 || h == ^uintptr(0) {
-			return syscall.InvalidHandle
+			invalid := syscall.InvalidHandle
+			return &invalid
 		}
 		handle := syscall.Handle(h)
 		p.mu.Lock()
 		p.allHandles = append(p.allHandles, handle)
 		p.mu.Unlock()
-		return handle
+		return &handle
 	}
 	return p
 }
@@ -83,11 +84,12 @@ func (p *winPinger) Ping(ctx context.Context, ip net.IP, timeout time.Duration) 
 	}
 
 	hObj := p.pool.Get()
-	h, ok := hObj.(syscall.Handle)
-	if !ok || h == syscall.InvalidHandle {
+	hPtr, ok := hObj.(*syscall.Handle)
+	if !ok || hPtr == nil || *hPtr == syscall.InvalidHandle {
 		return fallbackPing(ctx, ip, timeout)
 	}
-	defer p.pool.Put(h)
+	defer p.pool.Put(hPtr)
+	h := *hPtr
 
 	// in_addr expects bytes in memory order: b0, b1, b2, b3
 	destAddr := binary.LittleEndian.Uint32(ip4)
