@@ -1,0 +1,637 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PingGrid - Network Subnet Status</title>
+<style>
+  :root {
+    --color-frame: #2c2c2c;
+    --color-border: #2c2c2c;
+    --color-offline: #404e41;
+    --color-online: #4d86a2;
+    --color-highlight: #e4f9d4;
+    --color-slow: #ab7550;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    background-color: #1a1a1a;
+    color: #e0e0e0;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+  .card {
+    background-color: #222222;
+    border: 1px solid #333333;
+    border-radius: 8px;
+    padding: 24px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 18px;
+    min-width: 350px;
+    max-width: 100%;
+  }
+  header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+    padding-bottom: 12px;
+    border-bottom: 1px solid #333333;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  h1 {
+    font-size: 1.1rem;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    color: #f5f5f5;
+    white-space: nowrap;
+  }
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .meta {
+    font-size: 0.8rem;
+    color: #888888;
+    white-space: nowrap;
+  }
+  .refresh-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: #2a2a2a;
+    border: 1px solid #3a3a3a;
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    color: #a0c4ff;
+  }
+  .delta-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: #1e293b;
+    border: 1px solid #334155;
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    color: #e2e8f0;
+  }
+  .pulse-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background-color: #52c41a;
+    animation: pulse 1.5s infinite;
+  }
+  @keyframes pulse {
+    0% { transform: scale(0.9); opacity: 0.7; }
+    50% { transform: scale(1.3); opacity: 1; }
+    100% { transform: scale(0.9); opacity: 0.7; }
+  }
+  .pause-btn {
+    background: #383838;
+    border: none;
+    color: #dddddd;
+    font-size: 0.7rem;
+    padding: 1px 6px;
+    border-radius: 3px;
+    cursor: pointer;
+  }
+  .pause-btn:hover {
+    background: #484848;
+  }
+  .header-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .action-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    background: #282c34;
+    border: 1px solid #3e4451;
+    color: #abb2bf;
+    font-size: 0.75rem;
+    padding: 3px 9px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    user-select: none;
+  }
+  .action-btn:hover {
+    background: #353b45;
+    color: #ffffff;
+    border-color: #5c6370;
+  }
+  .action-btn.copied {
+    background: rgba(82, 196, 26, 0.2);
+    border-color: #52c41a;
+    color: #52c41a;
+  }
+  body.light-theme {
+    background-color: #f3f4f6;
+    color: #1f2937;
+  }
+  body.light-theme .card {
+    background-color: #ffffff;
+    border-color: #e5e7eb;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.08);
+  }
+  body.light-theme h1 { color: #111827; }
+  body.light-theme header { border-bottom-color: #e5e7eb; }
+  body.light-theme .meta { color: #6b7280; }
+  body.light-theme .action-btn {
+    background: #f3f4f6;
+    border-color: #d1d5db;
+    color: #374151;
+  }
+  body.light-theme .action-btn:hover {
+    background: #e5e7eb;
+    color: #111827;
+  }
+  body.light-theme .filter-pill {
+    background: #f3f4f6;
+    border-color: #d1d5db;
+    color: #4b5563;
+  }
+  body.light-theme .filter-pill.active {
+    background: #e0e7ff;
+    color: #3730a3;
+    border-color: #818cf8;
+  }
+  body.light-theme .hud {
+    background: #f9fafb;
+    border-color: #e5e7eb;
+    color: #374151;
+  }
+  body.light-theme .deltas-card {
+    background: #f9fafb;
+    border-color: #e5e7eb;
+  }
+  body.light-theme .deltas-title { color: #1f2937; }
+  body.light-theme .delta-ip { color: #111827; }
+  body.light-theme .scale-btn {
+    background: #f3f4f6;
+    border-color: #d1d5db;
+    color: #374151;
+  }
+  .stats-bar {
+    display: flex;
+    gap: 8px;
+    font-size: 0.82rem;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .filter-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: #25282f;
+    border: 1px solid #383e4a;
+    color: #abb2bf;
+    padding: 3px 10px;
+    border-radius: 12px;
+    font-size: 0.76rem;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .filter-pill:hover {
+    background: #2e3440;
+    color: #eceff4;
+    border-color: #4c566a;
+  }
+  .filter-pill.active {
+    background: #3b4252;
+    color: #ffffff;
+    border-color: #61afef;
+    box-shadow: 0 0 6px rgba(97, 175, 239, 0.3);
+    font-weight: 600;
+  }
+  .stat-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .stat-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+  }
+  .dot-online { background-color: var(--color-online); }
+  .dot-fast { background-color: var(--color-highlight); }
+  .dot-slow { background-color: var(--color-slow); }
+  .dot-offline { background-color: var(--color-offline); }
+
+   
+  .grid-canvas {
+    width: 295px;
+    height: 77px;
+    background-color: var(--color-frame);
+    position: relative;
+    border: 1px solid #111111;
+    overflow: hidden;
+    user-select: none;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.5);
+  }
+  .grid-table {
+    display: grid;
+    grid-template-columns: repeat(2, 146px);
+    grid-template-rows: repeat(2, 37px);
+    gap: 1px;
+    background-color: var(--color-border);
+    position: absolute;
+    top: 1px;
+    left: 3px;
+    padding: 1px;
+  }
+  .cell {
+    width: 146px;
+    height: 37px;
+    cursor: pointer;
+    transition: transform 0.08s ease, filter 0.08s ease;
+  }
+  .cell:hover {
+    outline: 1px solid #ffffff;
+    z-index: 10;
+    transform: scale(1.3);
+    filter: brightness(1.2);
+  }
+  .cell.dimmed {
+    opacity: 0.15;
+    filter: grayscale(0.8) brightness(0.7);
+  }
+  .cell-joined {
+    outline: 1.5px solid #52c41a;
+    box-shadow: 0 0 8px #52c41a;
+    animation: joinPulse 1.6s infinite ease-in-out;
+  }
+  @keyframes joinPulse {
+    0%, 100% { box-shadow: 0 0 3px #52c41a; }
+    50% { box-shadow: 0 0 10px #52c41a, inset 0 0 4px #52c41a; }
+  }
+  .cell-dropped {
+    outline: 1.5px dashed #ff4d4f;
+    box-shadow: 0 0 6px rgba(255, 77, 79, 0.7);
+    animation: dropBlink 1.6s infinite ease-in-out;
+  }
+  @keyframes dropBlink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+  .cell-changed {
+    outline: 1.5px solid #faad14;
+    box-shadow: 0 0 6px rgba(250, 173, 20, 0.6);
+  }
+  .deltas-card {
+    width: 100%;
+    background-color: #171b21;
+    border: 1px solid #2d3748;
+    border-radius: 6px;
+    padding: 10px 14px;
+    margin-top: 6px;
+    font-size: 0.8rem;
+  }
+  .deltas-title {
+    font-weight: 600;
+    color: #e2e8f0;
+    margin-bottom: 8px;
+    font-size: 0.82rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .deltas-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-height: 140px;
+    overflow-y: auto;
+  }
+  .delta-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+    font-size: 0.78rem;
+    padding: 2px 0;
+  }
+  .delta-badge-inline {
+    text-transform: uppercase;
+    font-size: 0.68rem;
+    font-weight: 700;
+    padding: 1px 6px;
+    border-radius: 3px;
+  }
+  .delta-badge-joined { background: rgba(82, 196, 26, 0.2); color: #52c41a; border: 1px solid rgba(82, 196, 26, 0.4); }
+  .delta-badge-dropped { background: rgba(255, 77, 79, 0.2); color: #ff4d4f; border: 1px solid rgba(255, 77, 79, 0.4); }
+  .delta-badge-changed { background: rgba(250, 173, 20, 0.2); color: #faad14; border: 1px solid rgba(250, 173, 20, 0.4); }
+  .delta-ip { color: #ffffff; font-weight: 600; }
+  .delta-detail { color: #94a3b8; }
+  .hud {
+    width: 100%;
+    min-height: 28px;
+    background-color: #181818;
+    border: 1px solid #2e2e2e;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.82rem;
+    font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+    color: #cccccc;
+    padding: 4px 12px;
+  }
+  .scale-controls {
+    display: flex;
+    gap: 8px;
+    font-size: 0.75rem;
+    color: #777777;
+  }
+  .scale-btn {
+    background: #2b2b2b;
+    border: 1px solid #3a3a3a;
+    color: #cccccc;
+    padding: 2px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  .scale-btn:hover {
+    background: #383838;
+  }
+</style>
+</head>
+
+<body>
+
+<div class="card">
+  <header>
+    <h1>PingGrid Subnet Activity</h1>
+    <div class="header-right">
+      <div class="header-actions">
+        <button id="refresh-btn" class="action-btn" onclick="location.reload()" title="Reload sweep dashboard">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+          <span>Refresh</span>
+        </button>
+        <button id="copy-btn" class="action-btn" onclick="copyActiveIPs()" title="Copy active responding IP addresses to clipboard">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+          <span id="copy-text">Copy Active (4)</span>
+        </button>
+        <button id="export-json-btn" class="action-btn" onclick="exportJSON()" title="Export scan results as JSON file">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+          <span>JSON</span>
+        </button>
+        <button id="export-csv-btn" class="action-btn" onclick="exportCSV()" title="Export scan results as CSV file">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="8" y1="13" x2="16" y2="13"></line><line x1="8" y1="17" x2="16" y2="17"></line></svg>
+          <span>CSV</span>
+        </button>
+        <button id="theme-btn" class="action-btn" onclick="toggleTheme()" title="Toggle Dark/Light theme">
+          <span id="theme-icon">🌓</span>
+          <span>Theme</span>
+        </button>
+      </div>
+      <div class="meta">2026-09-04 11:29:22 MDT &bull; 4ms</div>
+    </div>
+  </header>
+
+  <div class="stats-bar">
+    <button class="filter-pill active" onclick="setFilter('all', this)" title="Show all hosts">All: 4</button>
+    <button class="filter-pill" onclick="setFilter('active', this)" title="Highlight active responding hosts"><span class="stat-dot dot-online"></span> Active: 4</button>
+    <button class="filter-pill" onclick="setFilter('fast', this)" title="Highlight fast responses (&le;20ms)"><span class="stat-dot dot-fast"></span> Fast: 4</button>
+    <button class="filter-pill" onclick="setFilter('slow', this)" title="Highlight slow responses (&ge;100ms)"><span class="stat-dot dot-slow"></span> Slow: 0</button>
+    <button class="filter-pill" onclick="setFilter('offline', this)" title="Highlight offline hosts"><span class="stat-dot dot-offline"></span> Offline: 0</button>
+  </div>
+
+  <div id="canvas-wrapper" class="grid-canvas">
+    <div class="grid-table">
+      <div class="cell" style="background-color: #e4f9d4;"
+           data-ip="127.0.0.1" data-status="Fast / Gateway" data-rtt="650.9µs" data-delta=""
+           title="127.0.0.1 - Fast / Gateway (650.9µs)"
+           onmouseover="updateHud('127.0.0.1', 'Fast \/ Gateway', '650.9µs', '')"
+           onmouseout="resetHud()"></div>
+      <div class="cell" style="background-color: #e4f9d4;"
+           data-ip="127.0.0.2" data-status="Fast / Gateway" data-rtt="650.9µs" data-delta=""
+           title="127.0.0.2 - Fast / Gateway (650.9µs)"
+           onmouseover="updateHud('127.0.0.2', 'Fast \/ Gateway', '650.9µs', '')"
+           onmouseout="resetHud()"></div>
+      <div class="cell" style="background-color: #e4f9d4;"
+           data-ip="127.0.0.3" data-status="Fast / Gateway" data-rtt="650.9µs" data-delta=""
+           title="127.0.0.3 - Fast / Gateway (650.9µs)"
+           onmouseover="updateHud('127.0.0.3', 'Fast \/ Gateway', '650.9µs', '')"
+           onmouseout="resetHud()"></div>
+      <div class="cell" style="background-color: #e4f9d4;"
+           data-ip="127.0.0.4" data-status="Fast / Gateway" data-rtt="650.9µs" data-delta=""
+           title="127.0.0.4 - Fast / Gateway (650.9µs)"
+           onmouseover="updateHud('127.0.0.4', 'Fast \/ Gateway', '650.9µs', '')"
+           onmouseout="resetHud()"></div>
+    </div>
+  </div>
+
+  <div id="hud" class="hud">Hover over any grid cell to view host details</div>
+
+  <div class="scale-controls">
+    <span>Zoom:</span>
+    <button class="scale-btn" onclick="setScale(1)">1x (295&times;77)</button>
+    <button class="scale-btn" onclick="setScale(2)">2x</button>
+    <button class="scale-btn" onclick="setScale(3)">3x</button>
+  </div>
+</div>
+
+<script>
+  function updateHud(ip, status, rtt, delta) {
+    var hud = document.getElementById('hud');
+    if (!hud) return;
+    var deltaBadge = '';
+    if (delta === 'joined') deltaBadge = ' &bull; <span style="color:#4ade80">[Recently Joined]</span>';
+    else if (delta === 'dropped') deltaBadge = ' &bull; <span style="color:#f87171">[Recently Dropped]</span>';
+    else if (delta === 'changed') deltaBadge = ' &bull; <span style="color:#fbbf24">[Status Shift]</span>';
+    hud.innerHTML = '<strong style="color:#ffffff">' + ip + '</strong> &mdash; Status: <span style="color:#7dbeff">' + status + '</span> (' + rtt + ')' + deltaBadge;
+  }
+  function resetHud() {
+    var hud = document.getElementById('hud');
+    if (!hud) return;
+    hud.innerHTML = 'Hover over any grid cell to view host details';
+  }
+  function setScale(factor) {
+    var wrapper = document.getElementById('canvas-wrapper');
+    if (!wrapper) return;
+    wrapper.style.transform = 'scale(' + factor + ')';
+    wrapper.style.transformOrigin = 'center center';
+    wrapper.style.margin = ((factor - 1) * 38) + 'px 0';
+  }
+
+  var refreshSeconds =  0 ;
+  var remaining = refreshSeconds;
+  var isPaused = false;
+
+  if (refreshSeconds > 0) {
+    setInterval(function() {
+      if (isPaused) return;
+      remaining--;
+      var el = document.getElementById('countdown-text');
+      if (el) {
+        if (remaining <= 0) {
+          el.innerText = 'Refreshing...';
+          location.reload();
+        } else {
+          el.innerText = 'Refresh in ' + remaining + 's';
+        }
+      }
+    }, 1000);
+  }
+
+  function togglePause() {
+    isPaused = !isPaused;
+    var btn = document.getElementById('pause-btn');
+    var el = document.getElementById('countdown-text');
+    if (btn) {
+      btn.innerText = isPaused ? 'Resume' : 'Pause';
+    }
+    if (el && isPaused) {
+      el.innerText = 'Paused';
+    }
+  }
+
+  function setFilter(type, el) {
+    var pills = document.querySelectorAll('.filter-pill');
+    for (var i = 0; i < pills.length; i++) {
+      pills[i].classList.remove('active');
+    }
+    if (el) el.classList.add('active');
+    var cells = document.querySelectorAll('.cell');
+    for (var j = 0; j < cells.length; j++) {
+      var c = cells[j];
+      var st = c.getAttribute('data-status');
+      var delta = c.getAttribute('data-delta');
+      var match = true;
+      if (type === 'active') {
+        match = (st && st !== 'Offline');
+      } else if (type === 'fast') {
+        match = (st && st.indexOf('Fast') !== -1);
+      } else if (type === 'slow') {
+        match = (st && st.indexOf('Slow') !== -1);
+      } else if (type === 'offline') {
+        match = (st === 'Offline');
+      } else if (type === 'deltas') {
+        match = (delta && delta !== '');
+      }
+      if (match) {
+        c.classList.remove('dimmed');
+      } else {
+        c.classList.add('dimmed');
+      }
+    }
+  }
+
+  function copyActiveIPs() {
+    var cells = document.querySelectorAll('.cell');
+    var active = [];
+    for (var i = 0; i < cells.length; i++) {
+      var st = cells[i].getAttribute('data-status');
+      var ip = cells[i].getAttribute('data-ip');
+      if (st && st !== 'Offline' && ip) {
+        active.push(ip);
+      }
+    }
+    if (active.length === 0) return;
+    var text = active.join('\n');
+    var doFeedback = function() {
+      var btn = document.getElementById('copy-btn');
+      var txt = document.getElementById('copy-text');
+      if (txt) txt.innerText = 'Copied (' + active.length + ')!';
+      if (btn) btn.classList.add('copied');
+      setTimeout(function() {
+        if (txt) txt.innerText = 'Copy Active (' + active.length + ')';
+        if (btn) btn.classList.remove('copied');
+      }, 2000);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(doFeedback).catch(function() {
+        fallbackCopy(text, doFeedback);
+      });
+    } else {
+      fallbackCopy(text, doFeedback);
+    }
+  }
+
+  function fallbackCopy(text, cb) {
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    try {
+      document.execCommand('copy');
+      if (cb) cb();
+    } catch (e) {}
+    document.body.removeChild(ta);
+  }
+
+  function exportJSON() {
+    var cells = document.querySelectorAll('.cell');
+    var data = [];
+    for (var i = 0; i < cells.length; i++) {
+      data.push({
+        ip: cells[i].getAttribute('data-ip'),
+        status: cells[i].getAttribute('data-status'),
+        rtt: cells[i].getAttribute('data-rtt'),
+        delta: cells[i].getAttribute('data-delta') || ''
+      });
+    }
+    var blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = 'pinggrid-results.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  function exportCSV() {
+    var cells = document.querySelectorAll('.cell');
+    var lines = ['IP,Status,RTT,Delta'];
+    for (var i = 0; i < cells.length; i++) {
+      lines.push(
+        cells[i].getAttribute('data-ip') + ',' +
+        '"' + (cells[i].getAttribute('data-status') || '') + '",' +
+        '"' + (cells[i].getAttribute('data-rtt') || '') + '",' +
+        '"' + (cells[i].getAttribute('data-delta') || '') + '"'
+      );
+    }
+    var blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = 'pinggrid-results.csv';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  function toggleTheme() {
+    document.body.classList.toggle('light-theme');
+    var isLight = document.body.classList.contains('light-theme');
+    var icon = document.getElementById('theme-icon');
+    if (icon) icon.innerText = isLight ? '☀️' : '🌓';
+  }
+</script>
+
+</body>
+</html>

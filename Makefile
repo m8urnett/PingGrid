@@ -1,12 +1,32 @@
-BINARY_NAME := PingGrid
+BINARY_NAME := pg
+VERSION := 0.3.0
+BUILD_NUM := 20
+GIT_COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null || echo dev)
+BUILD_DATE := $(shell date -u +'%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || echo unknown)
 
-.PHONY: build run test test-race test-coverage vet lint fmt tidy deps install clean check
+LDFLAGS := -ldflags "\
+	-s -w \
+	-X github.com/m8urnett/PingGrid/internal/version.GitCommit=$(GIT_COMMIT) \
+	-X github.com/m8urnett/PingGrid/internal/version.BuildDate=$(BUILD_DATE)"
 
-build:
-	go build -o $(BINARY_NAME) .
+.PHONY: build build-windows build-linux build-darwin build-all run test test-race test-coverage vet lint fmt tidy deps install clean check
+
+build: build-windows
+
+build-windows:
+	go build -trimpath $(LDFLAGS) -o $(BINARY_NAME).exe .
+
+build-linux:
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath $(LDFLAGS) -o bin/$(BINARY_NAME)-linux-amd64 .
+
+build-darwin:
+	CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath $(LDFLAGS) -o bin/$(BINARY_NAME)-darwin-arm64 .
+	CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -trimpath $(LDFLAGS) -o bin/$(BINARY_NAME)-darwin-amd64 .
+
+build-all: build-windows build-linux build-darwin
 
 run:
-	go run .
+	go run -trimpath $(LDFLAGS) .
 
 test:
 	go test ./...
@@ -35,9 +55,9 @@ deps:
 	go mod download
 
 install:
-	go install .
+	go install $(LDFLAGS) .
 
 clean:
-	rm -f $(BINARY_NAME) $(BINARY_NAME).exe coverage.out coverage.html
+	rm -f $(BINARY_NAME) $(BINARY_NAME).exe coverage.out coverage.html grid.png
 
-check: fmt vet lint test
+check: fmt vet test

@@ -1,6 +1,9 @@
 # Binaries
 PingGrid
 PingGrid.exe
+pg
+pg.exe
+bin/
 *.exe
 *.test
 *.out
