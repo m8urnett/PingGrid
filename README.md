@@ -2,7 +2,7 @@
 
 PingGrid is a high-performance, cross-platform network ping sweeper and subnet visualizer for IPv4 address ranges. It concurrently pings target addresses and renders an activity grid in multiple formats: **console ASCII/ANSI matrix**, **interactive HTML dashboard**, and **PNG image**.
 
-Runs natively on **Windows**, **Linux**, and **macOS**.
+Runs natively on **Windows**, **Linux**, and **macOS**. Code is almost completely AI-generated, under strict design constraints. Don't hate me, hate the robots.
 
 ## Quick Start
 
