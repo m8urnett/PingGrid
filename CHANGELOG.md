@@ -11,7 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Universal CLI Switch Prefix Support (`-`, `--`, `/`)**: Parameters and flags can now be specified using single hyphens, double hyphens, or Windows-style slashes interchangeably (e.g. `/html`, `-html`, `--html`, `/p 3`, `-p 3`, `--p 3`, `/rows 5`, `-rows 5`, `--rows 5`, `/s moss`, `-scheme earth`, `/p:3`, `/rows=5`).
 - **Millisecond Measurement Standard**: All latency and duration metrics across HTML dashboards, tooltips, delta notices, and verbose diagnostic logs are formatted in milliseconds (`ms`), removing microsecond (`µs`) display.
 
+- **Shell Autocompletion for Bash, Zsh, and Fish**: Added dedicated completion subcommands (`pg completion bash`, `pg completion zsh`, `pg completion fish`) alongside `pg completion powershell`, including contextual completion for `--scheme`, `--color`, and `--encoding` flags.
+
 ### Changed
+- **Unrestricted Custom Color Hex Inputs**: Removed internal `AllowedPaletteHex` restrictions; users can supply any valid 3- or 6-digit hex color format (`#RRGGBB`, `RRGGBB`, `#RGB`, `RGB`, `0xRRGGBB`) to all `--color-*` override flags.
 - **ASCII Plain Mode Slow Host Glyph (`*`)**: Slow-responding hosts in ASCII plain mode now use `*` instead of `!`. Fast / gateway infrastructure hosts use `^` to maintain clear visual distinction.
 - **Moss Color Scheme Cell Background**: Updated the offline / no-response cell background color in the `moss` scheme to Forest Green (`#465a47`).
 - **Earth Color Scheme Cell Background**: Updated the offline / no-response cell background color in the `earth` scheme to Warm Brown (`#886d5b`).

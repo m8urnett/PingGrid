@@ -455,3 +455,20 @@ func TestVersionAndVerboseFlags(t *testing.T) {
 		t.Errorf("Expected --version to set flags.showVersion to true")
 	}
 }
+
+func TestShellCompletionSubcommands(t *testing.T) {
+	cmd, _ := newRootCmd()
+	completionCmd, _, err := cmd.Find([]string{"completion"})
+	if err != nil || completionCmd == nil {
+		t.Fatalf("Expected 'completion' command to exist")
+	}
+
+	shells := []string{"bash", "zsh", "fish", "powershell"}
+	for _, shell := range shells {
+		subCmd, _, err := cmd.Find([]string{"completion", shell})
+		if err != nil || subCmd == nil || subCmd.Name() != shell {
+			t.Errorf("Expected completion subcommand for shell %q", shell)
+		}
+	}
+}
+

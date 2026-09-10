@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-// Allowed palette colors specified by design standards.
+// Preset theme palette colors.
 var (
 	PaletteCharcoal   = color.RGBA{R: 0x2C, G: 0x2C, B: 0x2C, A: 0xFF} // #2c2c2c
 	PaletteLightGray  = color.RGBA{R: 0xEF, G: 0xEF, B: 0xEF, A: 0xFF} // #efefef
@@ -24,22 +24,6 @@ var (
 	PaletteEarthCellBg = color.RGBA{R: 0x88, G: 0x6D, B: 0x5B, A: 0xFF} // #886d5b
 	PaletteLinenFg     = color.RGBA{R: 0x89, G: 0x7E, B: 0x79, A: 0xFF} // #C7BEAE
 )
-
-// AllowedPaletteHex returns the list of all allowed palette hex strings.
-var AllowedPaletteHex = []string{
-	"#2c2c2c",
-	"#efefef",
-	"#f4eeeb",
-	"#b1b9a0",
-	"#4d86a2",
-	"#ab7550",
-	"#404e41",
-	"#fcfcfc",
-	"#e4f9d4",
-	"#465a47",
-	"#886d5b",
-	"#897e79",
-}
 
 // ParseHexColor parses a hex color string into a color.RGBA.
 // Supports formats: "#RRGGBB", "RRGGBB", "#RGB", "RGB", "0xRRGGBB" (with or without leading '#').

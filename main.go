@@ -503,38 +503,106 @@ and renders an activity grid (terminal ASCII display, interactive HTML, or PNG i
 
 	// Shell tab-completion command
 	completionCmd := &cobra.Command{
-		Use:   "completion [command]",
+		Use:   "completion [bash|zsh|fish|powershell]",
 		Short: "Generate shell completion script",
 		Long: `Generate shell autocompletion script for pg.
 Supports tab completion for command flags, built-in color schemes, and output formats.
 
-Usage:
-  pg completion powershell
-    Outputs a PowerShell script defining Register-ArgumentCompleter.
+Available Shells:
+  bash        Generate Bash completion script
+  zsh         Generate Zsh completion script
+  fish        Generate Fish completion script
+  powershell  Generate PowerShell completion script
 
 Examples:
-  # Enable completion in current PowerShell session:
-  pg completion powershell | Out-String | Invoke-Expression
+  # Bash (load in current session):
+  source <(pg completion bash)
 
-  # Persist completion in your PowerShell profile:
-  Add-Content $PROFILE "` + "`" + `\npg completion powershell | Out-String | Invoke-Expression` + "`" + `"`,
+  # Zsh (load in current session):
+  source <(pg completion zsh)
+
+  # PowerShell (load in current session):
+  pg completion powershell | Out-String | Invoke-Expression`,
 		Hidden: true,
 	}
+
+	completionBashCmd := &cobra.Command{
+		Use:   "bash",
+		Short: "Generate Bash tab completion script",
+		Long: `Generate Bash tab completion script for pg.
+
+To load in current session:
+  source <(pg completion bash)
+
+To load completions for every new session:
+  # Linux:
+  pg completion bash > /etc/bash_completion.d/pg
+  # macOS (with Homebrew bash-completion):
+  pg completion bash > $(brew --prefix)/etc/bash_completion.d/pg`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return cli.GenerateBashCompletion(rootCmd)
+		},
+	}
+
+	completionZshCmd := &cobra.Command{
+		Use:   "zsh",
+		Short: "Generate Zsh tab completion script",
+		Long: `Generate Zsh tab completion script for pg.
+
+To load in current session:
+  source <(pg completion zsh)
+
+To load completions for every new session:
+  pg completion zsh > "${fpath[1]}/_pg"`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return cli.GenerateZshCompletion(rootCmd)
+		},
+	}
+
+	completionFishCmd := &cobra.Command{
+		Use:   "fish",
+		Short: "Generate Fish tab completion script",
+		Long: `Generate Fish tab completion script for pg.
+
+To load in current session:
+  pg completion fish | source
+
+To load completions for every new session:
+  pg completion fish > ~/.config/fish/completions/pg.fish`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return cli.GenerateFishCompletion(rootCmd)
+		},
+	}
+
 	completionPSCmd := &cobra.Command{
 		Use:   "powershell",
 		Short: "Generate PowerShell tab completion script",
 		Long: `Generate PowerShell tab completion script for pg.
 Completes flags (-s/--scheme, -p/--pings, -l/--list, -R/--refresh, etc.), valid scheme names
-(dark, light, earth, moss, linen), and output formats (list, text, json, summary, html, iframe, png).
+(dark, light, earth, moss, linen), and output formats (list, ascii, json, summary, html, iframe, png).
 
 To load in current session:
-  pg completion powershell | Out-String | Invoke-Expression`,
+  pg completion powershell | Out-String | Invoke-Expression
+
+To persist across all PowerShell sessions:
+  Add-Content $PROFILE "` + "`" + `\npg completion powershell | Out-String | Invoke-Expression` + "`" + `"`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return cli.GeneratePowerShellCompletion(rootCmd)
 		},
 	}
-	completionCmd.AddCommand(completionPSCmd)
+
+	completionCmd.AddCommand(completionBashCmd, completionZshCmd, completionFishCmd, completionPSCmd)
 	rootCmd.AddCommand(completionCmd)
+
+	_ = rootCmd.RegisterFlagCompletionFunc("scheme", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		return grid.AvailableSchemes(), cobra.ShellCompDirectiveNoFileComp
+	})
+	_ = rootCmd.RegisterFlagCompletionFunc("color", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		return []string{"auto", "always", "never"}, cobra.ShellCompDirectiveNoFileComp
+	})
+	_ = rootCmd.RegisterFlagCompletionFunc("encoding", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		return []string{"utf8", "utf8-bom"}, cobra.ShellCompDirectiveNoFileComp
+	})
 
 	return rootCmd, &flags
 }
@@ -591,6 +659,12 @@ Examples:
 
 Shell Completion:
   Generate tab autocompletion script for commands, flags, and color schemes.
+
+  Bash (load in current session):
+    source <(pg completion bash)
+
+  Zsh (load in current session):
+    source <(pg completion zsh)
 
   PowerShell (load in current session):
     pg completion powershell | Out-String | Invoke-Expression

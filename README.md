@@ -127,12 +127,43 @@ Help & Usage:
 
 Generate shell autocompletion for `pg` commands, flags, built-in color schemes, and output formats:
 
+### Bash
+```bash
+# Load completion in the current Bash session:
+source <(pg completion bash)
+
+# Persist completion across all Bash sessions:
+pg completion bash > /etc/bash_completion.d/pg
+# Or locally for the current user:
+mkdir -p ~/.local/share/bash-completion/completions
+pg completion bash > ~/.local/share/bash-completion/completions/pg
+```
+
+### Zsh
+```zsh
+# Load completion in the current Zsh session:
+source <(pg completion zsh)
+
+# Persist completion across all Zsh sessions:
+pg completion zsh > "${fpath[1]}/_pg"
+```
+
+### PowerShell
 ```powershell
 # Load completion in the current PowerShell session:
 pg.exe completion powershell | Out-String | Invoke-Expression
 
 # Persist completion across all PowerShell sessions ($PROFILE):
 Add-Content $PROFILE "`npg.exe completion powershell | Out-String | Invoke-Expression"
+```
+
+### Fish
+```fish
+# Load completion in the current Fish session:
+pg completion fish | source
+
+# Persist completion across all Fish sessions:
+pg completion fish > ~/.config/fish/completions/pg.fish
 ```
 
 ## Examples
