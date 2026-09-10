@@ -607,7 +607,7 @@ To persist across all PowerShell sessions:
 	return rootCmd, &flags
 }
 
-func buildHelpText(cmd *cobra.Command) string {
+func buildHelpText(_ *cobra.Command) string {
 	return `pg (PingGrid) performs a concurrent ping sweep across a target subnet or IP range
 and renders an activity grid (terminal ASCII display, interactive HTML, or PNG image).
 

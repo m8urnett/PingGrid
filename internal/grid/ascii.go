@@ -146,7 +146,9 @@ func RenderASCIIDelta(cfg GridConfig, results []scanner.HostResult, deltas []sca
 					case scanner.DeltaChanged:
 						sb.WriteString("\x1b[93;1m~ \x1b[0m")
 					default:
-						sb.WriteString(ansiRGB(cfg.ColorOffline) + "■ " + ansiReset)
+						sb.WriteString(ansiRGB(cfg.ColorOffline))
+						sb.WriteString("■ ")
+						sb.WriteString(ansiReset)
 					}
 				} else {
 					var clr color.RGBA

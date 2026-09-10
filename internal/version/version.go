@@ -7,7 +7,7 @@ const (
 	Major = 0
 	Minor = 6
 	Patch = 0
-	Build = 39
+	Build = 40
 )
 
 var (
