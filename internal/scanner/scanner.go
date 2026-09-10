@@ -28,7 +28,7 @@ type Config struct {
 func DefaultScannerConfig() Config {
 	return Config{
 		Count:         256,
-		Concurrency:   128,
+		Concurrency:   256,
 		Timeout:       150 * time.Millisecond,
 		SlowThreshold: 100 * time.Millisecond,
 		Pings:         3,
@@ -256,7 +256,7 @@ type ProgressFunc func(completed, total int, result HostResult)
 // Sweep executes the ping sweep across all provided IP addresses using a worker pool.
 func Sweep(ctx context.Context, ips []net.IP, cfg Config, onProgress ProgressFunc) []HostResult {
 	if cfg.Concurrency <= 0 {
-		cfg.Concurrency = 64
+		cfg.Concurrency = 256
 	}
 	if cfg.Timeout <= 0 {
 		cfg.Timeout = 150 * time.Millisecond

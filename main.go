@@ -476,7 +476,7 @@ and renders an activity grid (terminal ASCII display, interactive HTML, or PNG i
 	// Scan Options
 	rootCmd.Flags().IntVarP(&flags.pings, "pings", "p", 3, "Number of ping attempts per host (default 3)")
 	rootCmd.Flags().DurationVarP(&flags.refresh, "refresh", "R", 0, "Continuous sweep refresh interval (e.g. 5s, 10s; 0 runs once)")
-	rootCmd.Flags().IntVar(&flags.concurrency, "concurrency", 128, "Number of concurrent ping workers")
+	rootCmd.Flags().IntVar(&flags.concurrency, "concurrency", 256, "Number of concurrent ping workers")
 	rootCmd.Flags().DurationVar(&flags.slowThreshold, "slow-threshold", 100*time.Millisecond, "Latency threshold for slow/degraded color")
 
 	// Grid Layout Options
@@ -626,7 +626,7 @@ Output Options:
 Scan Options:
   -p, --pings <count>            Number of ping attempts per host (default 3)
   -R, --refresh <interval>       Continuous sweep refresh interval (e.g. 5s, 10s; 0 runs once)
-      --concurrency <workers>    Number of concurrent ping workers (default 128)
+      --concurrency <workers>    Number of concurrent ping workers (default 256)
       --timeout <duration>       Ping timeout duration per host (default 150ms RFC1918/LAN, 400ms WAN)
       --slow-threshold <duration> Latency threshold for slow/degraded color (default 100ms)
 
@@ -755,8 +755,8 @@ func buildExamplesText() string {
   # Set custom slow-response latency threshold:
   pg 192.168.1.0/24 --slow-threshold 50ms
 
-  # Tune concurrency (worker pool size, default: 128):
-  pg 10.0.0.0/16 --concurrency 256
+  # Tune concurrency (worker pool size, default: 256):
+  pg 10.0.0.0/16 --concurrency 512
 
 4. Color Themes & Palette Customization:
   # Switch built-in scheme (dark, light, earth, moss, linen):

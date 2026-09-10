@@ -95,7 +95,7 @@ Output Options:
 Scan Options:
   -p, --pings <count>            Number of ping attempts per host (default 3)
   -R, --refresh <interval>       Continuous sweep refresh interval (e.g. 5s, 10s; 0 runs once)
-      --concurrency <workers>    Number of concurrent ping workers (default 128)
+      --concurrency <workers>    Number of concurrent ping workers (default 256)
       --timeout <duration>       Ping timeout duration per host (default 150ms RFC1918/LAN, 400ms WAN)
       --slow-threshold <duration> Latency threshold for slow/degraded color (default 100ms)
 

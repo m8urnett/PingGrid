@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Embedded Visual Documentation Gallery**: Fully documented all 5 built-in color schemes (`dark`, `light`, `earth`, `moss`, `linen`), terminal ANSI matrix, plain monochrome ASCII mode, and interactive HTML dashboards with embedded high-resolution screenshots.
 
 ### Changed
+- Concurrency worker pool default increased from 128 to 256, enabling simultaneous ping sweeps across entire `/24` subnets in a single concurrent pass.
 - All latency metrics standardized to millisecond (`ms`) representation across console, HTML dashboards, and JSON outputs.
 
 ### Removed

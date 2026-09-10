@@ -487,4 +487,12 @@ func TestARPCacheRemoved(t *testing.T) {
 	}
 }
 
+func TestDefaultConcurrency(t *testing.T) {
+	_, flags := newRootCmd()
+	if flags.concurrency != 256 {
+		t.Errorf("Expected default concurrency to be 256, got %d", flags.concurrency)
+	}
+}
+
+
 
