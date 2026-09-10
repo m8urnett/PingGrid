@@ -5,9 +5,9 @@ import "fmt"
 // Authoritative version information for PingGrid.
 const (
 	Major = 1
-	Minor = 0
+	Minor = 1
 	Patch = 0
-	Build = 46
+	Build = 47
 )
 
 var (

@@ -4,6 +4,17 @@ All notable changes to PingGrid will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-09-10
+
+### Added
+- **Cross-Platform OS Network Stack Optimization (`--optimize-os` / `pg optimize-os`)**: Built-in automated kernel network optimizer for Windows, Linux, and macOS to maximize ICMP sweep throughput and neighbor cache performance.
+  - **Windows**: Expands IPv4 global neighbor cache limit from 256 to 4096 (`netsh interface ipv4 set global neighborcachelimit=4096`), tunes interface base reachable duration to 5 minutes (`basereachable=300000`), reduces retransmission delay to 200 ms (`retransmit=200`), and creates a Windows Firewall outbound ICMP fastpath rule.
+  - **Linux**: Tunes sysctl parameters (`mcast_solicit=1`, `retrans_time_ms=100`, `base_reachable_time_ms=300000`, `gc_thresh3=4096`, and enables `net.ipv4.ping_group_range="0 2147483647"` for unprivileged ICMP ping sockets).
+  - **macOS**: Configures ARP cache longevity (`net.link.ether.inet.max_age=1200`), prune intervals, and expands socket buffer limits (`kern.ipc.maxsockbuf=4194304`).
+  - **Elevation Safety & Dry Run**: Automatically detects elevation status (`IsUserAnAdmin` on Windows, UID 0 on POSIX), displaying detailed before/after values and actionable elevation instructions if non-elevated. Supports `--dry-run` inspection mode.
+
+---
+
 ## [1.0.0] - 2026-09-10
  
 ### Added

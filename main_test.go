@@ -494,5 +494,50 @@ func TestDefaultConcurrency(t *testing.T) {
 	}
 }
 
+func TestOptimizeOS(t *testing.T) {
+	// 1. Flag existence
+	cmd, _ := newRootCmd()
+	if f := cmd.Flags().Lookup("optimize-os"); f == nil {
+		t.Fatal("Expected --optimize-os flag to be registered on root command")
+	}
+	if f := cmd.Flags().Lookup("dry-run"); f == nil {
+		t.Fatal("Expected --dry-run flag to be registered on root command")
+	}
+
+	// 2. Subcommand existence
+	var subCmdFound bool
+	for _, c := range cmd.Commands() {
+		if c.Name() == "optimize-os" {
+			subCmdFound = true
+			break
+		}
+	}
+	if !subCmdFound {
+		t.Fatal("Expected optimize-os subcommand to be registered")
+	}
+
+	// 3. Dry-run execution via flag
+	cmdFlag, _ := newRootCmd()
+	cmdFlag.SetArgs(normalizeCLIArgs([]string{"--optimize-os", "--dry-run"}))
+	if err := cmdFlag.Execute(); err != nil {
+		t.Fatalf("Failed to execute --optimize-os --dry-run: %v", err)
+	}
+
+	// 4. Dry-run execution via subcommand
+	cmdSub, _ := newRootCmd()
+	cmdSub.SetArgs(normalizeCLIArgs([]string{"optimize-os", "--dry-run"}))
+	if err := cmdSub.Execute(); err != nil {
+		t.Fatalf("Failed to execute optimize-os --dry-run: %v", err)
+	}
+
+	// 5. Windows slash syntax /optimize-os /dry-run
+	cmdSlash, _ := newRootCmd()
+	cmdSlash.SetArgs(normalizeCLIArgs([]string{"/optimize-os", "/dry-run"}))
+	if err := cmdSlash.Execute(); err != nil {
+		t.Fatalf("Failed to execute /optimize-os /dry-run: %v", err)
+	}
+}
+
+
 
 

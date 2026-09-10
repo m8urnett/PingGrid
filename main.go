@@ -14,6 +14,7 @@ import (
 
 	"github.com/m8urnett/PingGrid/internal/grid"
 	"github.com/m8urnett/PingGrid/internal/scanner"
+	"github.com/m8urnett/PingGrid/internal/sysopt"
 	"github.com/m8urnett/PingGrid/internal/toolkit/cli"
 	"github.com/m8urnett/PingGrid/internal/toolkit/errors"
 	"github.com/m8urnett/PingGrid/internal/toolkit/log"
@@ -47,6 +48,8 @@ type appFlags struct {
 	showVersion    bool
 	showExamples   bool
 	pings          int
+	optimizeOS     bool
+	dryRun         bool
 
 	// Dedicated output format flags
 	optASCII   string
@@ -282,6 +285,10 @@ func normalizeFlagToken(token string) (string, bool) {
 		return "--color-frame", true
 	case "plain":
 		return "--plain", true
+	case "optimize-os", "optimize_os", "optimizeos":
+		return "--optimize-os", true
+	case "dry-run", "dry_run", "dryrun":
+		return "--dry-run", true
 	case "verbose":
 		return "-v", true
 	case "quiet":
@@ -326,12 +333,16 @@ func normalizeFlagToken(token string) (string, bool) {
 }
 
 func normalizeCLIArgs(args []string) []string {
-	if len(args) <= 1 {
+	if len(args) == 0 {
 		return args
 	}
 
 	result := make([]string, 0, len(args))
-	result = append(result, args[0])
+	startIndex := 0
+	if !strings.HasPrefix(args[0], "-") && !strings.HasPrefix(args[0], "/") {
+		result = append(result, args[0])
+		startIndex = 1
+	}
 
 	outputOptionFlags := map[string]bool{
 		"--list":    true,
@@ -346,7 +357,7 @@ func normalizeCLIArgs(args []string) []string {
 		"--text":    true,
 	}
 
-	for i := 1; i < len(args); i++ {
+	for i := startIndex; i < len(args); i++ {
 		arg := args[i]
 
 		// Support naked keywords
@@ -421,6 +432,9 @@ and renders an activity grid (terminal ASCII display, interactive HTML, or PNG i
 			if flags.showExamples {
 				fmt.Print(buildExamplesText())
 				return nil
+			}
+			if flags.optimizeOS {
+				return runOptimizeOS(cmd, &flags)
 			}
 			return runSweep(cmd, &flags, args)
 		},
@@ -500,6 +514,24 @@ and renders an activity grid (terminal ASCII display, interactive HTML, or PNG i
 	rootCmd.Flags().BoolVar(&flags.showVersion, "ver", false, "Display version information and exit")
 	_ = rootCmd.Flags().MarkHidden("ver")
 	rootCmd.Flags().BoolVar(&flags.showExamples, "examples", false, "Display usage examples and target range formats")
+	rootCmd.Flags().BoolVar(&flags.optimizeOS, "optimize-os", false, "Tune host OS network parameters for fast ping sweeping (requires admin/root)")
+	rootCmd.Flags().BoolVar(&flags.dryRun, "dry-run", false, "Inspect proposed OS optimizations without applying changes")
+
+	// Dedicated optimize-os subcommand
+	optCmd := &cobra.Command{
+		Use:   "optimize-os",
+		Short: "Tune host OS network parameters for fast ping sweeping (requires admin/root)",
+		Long: `Inspect and apply kernel network stack optimizations to accelerate ICMP ping sweeping
+and neighbor table resolution on the host operating system.
+
+Requires Administrator privileges on Windows and root (sudo) privileges on Linux/macOS.
+Use --dry-run to inspect proposed changes without modifying system settings.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runOptimizeOS(cmd, &flags)
+		},
+	}
+	optCmd.Flags().BoolVar(&flags.dryRun, "dry-run", false, "Inspect proposed OS optimizations without applying changes")
+	rootCmd.AddCommand(optCmd)
 
 	// Shell tab-completion command
 	completionCmd := &cobra.Command{
@@ -654,6 +686,10 @@ Standard Options:
       --examples                 Display detailed usage examples and target formats
       --plain                    Plain monochrome ASCII mode without ANSI colors
 
+System Optimization:
+      --optimize-os              Tune host OS network parameters for fast sweeping (requires admin/root)
+      --dry-run                  Inspect proposed OS optimizations without applying changes
+
 Examples:
   Run 'pg --examples' to view detailed usage examples and all supported IP range formats.
 
@@ -766,6 +802,14 @@ func buildExamplesText() string {
   # Custom hex colors (with or without leading #):
   pg 192.168.1.0/24 --color-online 4d86a2 --color-offline 404e41
   pg 192.168.1.0/24 --color-online "#4d86a2" --color-slow "#ab7550"
+
+5. Host Operating System Tuning:
+  # Inspect proposed OS network optimizations (dry-run preview):
+  pg optimize-os --dry-run
+
+  # Apply OS network optimizations (run as Administrator / sudo):
+  pg optimize-os
+  pg --optimize-os
 `
 }
 
@@ -1263,3 +1307,81 @@ func executeSweepIteration(
 
 	return results, nil
 }
+
+func runOptimizeOS(cmd *cobra.Command, flags *appFlags) error {
+	ctx := context.Background()
+	isPlain := flags.Plain || flags.Color == "never"
+	elevated := sysopt.IsElevated()
+
+	fmt.Printf("PingGrid OS Network Optimizer (%s)\n", sysopt.OSName())
+	fmt.Println(strings.Repeat("=", 65))
+
+	if flags.dryRun {
+		fmt.Println("Mode: DRY RUN (previewing proposed changes, none will be applied)")
+	} else if elevated {
+		fmt.Println("Privileges: Elevated (Administrator / Root)")
+	} else {
+		fmt.Println("Privileges: Standard User (Non-Elevated)")
+	}
+	fmt.Println()
+
+	if !elevated && !flags.dryRun {
+		opts, err := sysopt.Inspect(ctx)
+		if err != nil {
+			return err
+		}
+
+		fmt.Println("Proposed System Optimizations:")
+		for i, o := range opts {
+			fmt.Printf("\n%d. %s\n", i+1, o.Name)
+			fmt.Printf("   Description:   %s\n", o.Description)
+			fmt.Printf("   Current Value: %s\n", o.CurrentValue)
+			fmt.Printf("   Target Value:  %s\n", o.TargetValue)
+			fmt.Printf("   Command:       %s\n", o.Command)
+		}
+
+		fmt.Println()
+		fmt.Println(strings.Repeat("-", 65))
+		if isPlain {
+			fmt.Println("[!] ATTENTION: Root/Administrator privileges are required to apply these changes.")
+		} else {
+			fmt.Println("\033[33m[!] ATTENTION: Root/Administrator privileges are required to apply these changes.\033[0m")
+		}
+		fmt.Printf("    %s\n", sysopt.ElevationInstructions())
+		fmt.Println("    To preview without elevation, run with: --dry-run")
+		return nil
+	}
+
+	results, err := sysopt.Apply(ctx, flags.dryRun)
+	if err != nil {
+		return err
+	}
+
+	var appliedCount, skippedCount, failedCount int
+	for _, res := range results {
+		badge := res.FormatBadge(isPlain)
+		fmt.Printf("%s %s\n", badge, res.SummaryString())
+		if res.Applied {
+			appliedCount++
+		} else if res.Skipped {
+			skippedCount++
+		} else if res.Err != nil {
+			failedCount++
+		}
+	}
+
+	fmt.Println()
+	fmt.Println(strings.Repeat("-", 65))
+	if flags.dryRun {
+		fmt.Printf("Inspection complete: %d optimizations reviewed.\n", len(results))
+		if !elevated {
+			fmt.Printf("\nTo apply these optimizations: %s\n", sysopt.ElevationInstructions())
+		}
+	} else {
+		fmt.Printf("Optimization complete: %d applied, %d already optimal, %d failed.\n",
+			appliedCount, skippedCount, failedCount)
+	}
+
+	return nil
+}
+

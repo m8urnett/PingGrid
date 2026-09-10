@@ -41,6 +41,12 @@ pg.exe 192.168.1.0/24 --plain
 # Output machine-readable JSON summary
 pg.exe 192.168.1.0/24 --json
 
+# Inspect proposed host OS network stack optimizations (dry-run):
+pg.exe optimize-os --dry-run
+
+# Apply host OS network stack optimizations (run as Administrator / sudo):
+pg.exe optimize-os
+
 # Display help and CLI usage (pg.exe without parameters also displays help)
 pg.exe /?
 ```
@@ -122,6 +128,10 @@ Standard Options:
   -h, --help                  Display help and exit
       --examples              Display detailed usage examples and target formats
       --plain                 Plain monochrome ASCII mode without ANSI colors
+
+System Optimization:
+      --optimize-os           Tune host OS network parameters for fast sweeping (requires admin/root)
+      --dry-run               Inspect proposed OS optimizations without applying changes
 
 Help & Usage:
   Running pg without arguments displays full usage.
@@ -400,6 +410,36 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o pg-linux-amd64 .
   ```sh
   go test -v ./...
   ```
+
+## Host OS Network Stack Optimization
+
+PingGrid includes a built-in cross-platform optimizer (`pg optimize-os` or `pg --optimize-os`) to tune host kernel network parameters for high-throughput, low-latency ICMP sweeping:
+
+> [!IMPORTANT]
+> **Privilege Requirement**: Modifying kernel network stack and firewall parameters requires **Administrator** rights on Windows and **Root (`sudo`)** rights on Linux/macOS. When run without elevation, PingGrid inspects the system, displays the current vs. proposed values, and shows the exact command needed to run with elevated privileges.
+>
+> Use `--dry-run` to preview changes at any time without modifying system settings:
+> ```sh
+> pg.exe optimize-os --dry-run
+> ```
+
+### Platform Tunings Applied
+
+* **Windows** (via `netsh` and Windows Filtering Platform):
+  * **Global Neighbor Cache Limit**: Expands from 256 to 4096 entries per interface (`netsh interface ipv4 set global neighborcachelimit=4096`) to prevent cache thrashing during large subnet sweeps.
+  * **Neighbor Reachable Duration**: Extends base reachable duration to 300,000 ms (5 minutes) so active hosts remain cached across repeated sweep cycles.
+  * **Retransmission Interval**: Lowers neighbor retransmission backoff from 1000 ms to 200 ms.
+  * **Windows Firewall Fastpath**: Registers an outbound firewall rule for `pg.exe` to bypass ICMP state inspection queues in WFP.
+* **Linux** (via `sysctl`):
+  * `net.ipv4.neigh.default.mcast_solicit = 1`: Drops dead-host multicast ARP probes from 3 attempts to 1.
+  * `net.ipv4.neigh.default.retrans_time_ms = 100`: Lowers ARP retransmission wait time from 1000 ms to 100 ms.
+  * `net.ipv4.neigh.default.base_reachable_time_ms = 300000`: Caches resolved active hosts for 5 minutes.
+  * `net.ipv4.neigh.default.gc_thresh3 = 4096`: Expands maximum neighbor table size to 4096 entries.
+  * `net.ipv4.ping_group_range = "0 2147483647"`: Enables unprivileged ICMP ping sockets for all users.
+* **macOS** (via `sysctl`):
+  * `net.link.ether.inet.max_age = 1200`: Extends retention lifespan of resolved ARP cache entries to 1200 seconds.
+  * `net.link.ether.inet.prune_intvl = 60`: Sets ARP prune clean interval to 60 seconds.
+  * `kern.ipc.maxsockbuf = 4194304`: Expands maximum socket buffer capacity for concurrent sweeps.
 
 ## License
 
