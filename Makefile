@@ -1,6 +1,6 @@
 BINARY_NAME := pg
 VERSION := 1.0.0
-BUILD_NUM := 43
+BUILD_NUM := 44
 GIT_COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null || echo dev)
 BUILD_DATE := $(shell date -u +'%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || echo unknown)
 

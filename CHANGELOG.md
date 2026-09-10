@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - **Production 1.0.0 Release**: First official production release of PingGrid.
 - **Embedded Visual Documentation Gallery**: Fully documented all 5 built-in color schemes (`dark`, `light`, `earth`, `moss`, `linen`), terminal ANSI matrix, plain monochrome ASCII mode, and interactive HTML dashboards with embedded high-resolution screenshots.
-- **Local ARP Neighbor Cache Inspection (`--arp-cache`)**: Dedicated passive inspection flag reading OS neighbor tables in memory (<2ms execution, zero network packets).
+- **Two-Phase Progressive Sweep (`--arp-cache`)**: Implemented progressive cache acceleration. Phase 1 immediately fires real ICMP pings exclusively to active hosts found in the local ARP cache (<5ms verification with zero ARP lookup delay and real RTT measurements). Phase 2 concurrently sweeps the remaining un-cached addresses across the subnet to detect newly booted or connected devices without blind spots.
 
 ### Changed
 - Standardized CLI flag naming to `--arp-cache` and eliminated `--arp` and `--use-arp-cache`.

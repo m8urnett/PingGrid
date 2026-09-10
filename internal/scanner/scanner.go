@@ -21,8 +21,9 @@ type Config struct {
 	SlowThreshold time.Duration
 	GatewayIP     net.IP
 	Pings         int
-	BroadcastIPs  []net.IP
-	UseARPCache   bool
+	BroadcastIPs     []net.IP
+	UseARPCache      bool
+	OnPhase1Complete func(results []HostResult, phase1Duration time.Duration)
 }
 
 // DefaultScannerConfig returns sensible defaults for scanning a local network.
@@ -275,56 +276,93 @@ func Sweep(ctx context.Context, ips []net.IP, cfg Config, onProgress ProgressFun
 		}
 	}
 
-	if cfg.UseARPCache {
-		arpTable, _ := ReadARPCache()
-		for i, ip := range ips {
-			status := StatusOffline
-			if _, exists := arpTable[ip.String()]; exists {
-				if cfg.GatewayIP != nil && ip.Equal(cfg.GatewayIP) {
-					status = StatusHighlight
-				} else {
-					status = StatusOnline
-				}
-			}
-			results[i] = HostResult{
-				IP:     ip,
-				Status: status,
-				RTT:    0,
-			}
-			if onProgress != nil {
-				onProgress(i+1, total, results[i])
-			}
-		}
-		return results
-	}
-
-	type task struct {
-		index int
-		ip    net.IP
-	}
-
-	tasks := make(chan task, total)
-	for i, ip := range ips {
-		tasks <- task{index: i, ip: ip}
-	}
-	close(tasks)
-
-	var (
-		wg        sync.WaitGroup
-		completed int
-		mu        sync.Mutex
-	)
-
-	workerCount := cfg.Concurrency
-	if workerCount > total {
-		workerCount = total
-	}
-
 	pinger := NewPlatformPinger()
 	defer func() {
 		_ = pinger.Close()
 	}()
 
+	var (
+		completed int
+		mu        sync.Mutex
+	)
+
+	if cfg.UseARPCache {
+		var cachedTasks, uncachedTasks []task
+		arpTable, _ := ReadARPCache()
+		for i, ip := range ips {
+			t := task{index: i, ip: ip}
+			if _, exists := arpTable[ip.String()]; exists {
+				cachedTasks = append(cachedTasks, t)
+			} else {
+				uncachedTasks = append(uncachedTasks, t)
+			}
+		}
+
+		// Phase 1: Rapid verification of known cached hosts with real ICMP pings (<5ms)
+		phase1Start := time.Now()
+		if len(cachedTasks) > 0 {
+			runTaskBatch(ctx, cachedTasks, pinger, cfg, results, total, &completed, &mu, onProgress)
+		}
+		phase1Duration := time.Since(phase1Start)
+
+		if cfg.OnPhase1Complete != nil {
+			mu.Lock()
+			snapshot := make([]HostResult, total)
+			copy(snapshot, results)
+			mu.Unlock()
+			cfg.OnPhase1Complete(snapshot, phase1Duration)
+		}
+
+		// Phase 2: Full subnet discovery of remaining un-cached addresses
+		if len(uncachedTasks) > 0 && ctx.Err() == nil {
+			runTaskBatch(ctx, uncachedTasks, pinger, cfg, results, total, &completed, &mu, onProgress)
+		}
+	} else {
+		allTasks := make([]task, total)
+		for i, ip := range ips {
+			allTasks[i] = task{index: i, ip: ip}
+		}
+		runTaskBatch(ctx, allTasks, pinger, cfg, results, total, &completed, &mu, onProgress)
+	}
+
+	return results
+}
+
+type task struct {
+	index int
+	ip    net.IP
+}
+
+func runTaskBatch(
+	ctx context.Context,
+	batch []task,
+	pinger Pinger,
+	cfg Config,
+	results []HostResult,
+	total int,
+	completed *int,
+	mu *sync.Mutex,
+	onProgress func(completed, total int, res HostResult),
+) {
+	if len(batch) == 0 {
+		return
+	}
+
+	tasks := make(chan task, len(batch))
+	for _, t := range batch {
+		tasks <- t
+	}
+	close(tasks)
+
+	workerCount := cfg.Concurrency
+	if workerCount > len(batch) {
+		workerCount = len(batch)
+	}
+	if workerCount <= 0 {
+		workerCount = 1
+	}
+
+	var wg sync.WaitGroup
 	for w := 0; w < workerCount; w++ {
 		wg.Add(1)
 		go func() {
@@ -337,15 +375,14 @@ func Sweep(ctx context.Context, ips []net.IP, cfg Config, onProgress ProgressFun
 				}
 
 				if IsIPv4Broadcast(t.ip, cfg.BroadcastIPs) {
-					// Do not ping broadcast addresses
 					res := HostResult{
 						IP:     t.ip,
 						Status: StatusOffline,
 					}
 					mu.Lock()
 					results[t.index] = res
-					completed++
-					currCompleted := completed
+					*completed++
+					currCompleted := *completed
 					mu.Unlock()
 
 					if onProgress != nil {
@@ -374,7 +411,6 @@ func Sweep(ctx context.Context, ips []net.IP, cfg Config, onProgress ProgressFun
 						lastErr = err
 					}
 				} else {
-					// Concurrent multi-ping: Ping 1 full timeout, Ping 2..N half timeout
 					type pingReply struct {
 						rtt time.Duration
 						err error
@@ -434,8 +470,8 @@ func Sweep(ctx context.Context, ips []net.IP, cfg Config, onProgress ProgressFun
 
 				mu.Lock()
 				results[t.index] = res
-				completed++
-				currCompleted := completed
+				*completed++
+				currCompleted := *completed
 				mu.Unlock()
 
 				if onProgress != nil {
@@ -446,5 +482,4 @@ func Sweep(ctx context.Context, ips []net.IP, cfg Config, onProgress ProgressFun
 	}
 
 	wg.Wait()
-	return results
 }

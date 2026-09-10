@@ -1,7 +1,10 @@
 package scanner
 
 import (
+	"context"
+	"net"
 	"testing"
+	"time"
 )
 
 func TestReadARPCache(t *testing.T) {
@@ -52,5 +55,42 @@ func TestParseArpOutput(t *testing.T) {
 	}
 	if _, exists := table["192.168.1.200"]; exists {
 		t.Errorf("did not expect incomplete entry in table")
+	}
+}
+
+func TestTwoPhaseSweep(t *testing.T) {
+	ips := []net.IP{
+		net.ParseIP("127.0.0.1"),
+		net.ParseIP("127.0.0.2"),
+	}
+
+	phase1Called := false
+	var p1Duration time.Duration
+
+	cfg := Config{
+		Count:         len(ips),
+		Concurrency:   2,
+		Timeout:       50 * time.Millisecond,
+		SlowThreshold: 100 * time.Millisecond,
+		Pings:         1,
+		UseARPCache:   true,
+		OnPhase1Complete: func(results []HostResult, d time.Duration) {
+			phase1Called = true
+			p1Duration = d
+			if len(results) != len(ips) {
+				t.Errorf("expected %d results in Phase 1 snapshot, got %d", len(ips), len(results))
+			}
+		},
+	}
+
+	results := Sweep(context.Background(), ips, cfg, nil)
+	if !phase1Called {
+		t.Errorf("expected OnPhase1Complete to be called")
+	}
+	if p1Duration < 0 {
+		t.Errorf("invalid phase 1 duration: %v", p1Duration)
+	}
+	if len(results) != len(ips) {
+		t.Errorf("expected %d final results, got %d", len(ips), len(results))
 	}
 }

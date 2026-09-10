@@ -481,7 +481,7 @@ and renders an activity grid (terminal ASCII display, interactive HTML, or PNG i
 	rootCmd.Flags().DurationVarP(&flags.refresh, "refresh", "R", 0, "Continuous sweep refresh interval (e.g. 5s, 10s; 0 runs once)")
 	rootCmd.Flags().IntVar(&flags.concurrency, "concurrency", 128, "Number of concurrent ping workers")
 	rootCmd.Flags().DurationVar(&flags.slowThreshold, "slow-threshold", 100*time.Millisecond, "Latency threshold for slow/degraded color")
-	rootCmd.Flags().BoolVar(&flags.arpCache, "arp-cache", false, "Inspect local ARP neighbor cache instead of sending ICMP packets")
+	rootCmd.Flags().BoolVar(&flags.arpCache, "arp-cache", false, "Two-phase progressive sweep: verify cached ARP hosts (<5ms), then discover subnet")
 	rootCmd.Flags().BoolVar(&flags.arpCache, "arp_cache", false, "Alias for --arp-cache")
 	_ = rootCmd.Flags().MarkHidden("arp_cache")
 
@@ -635,7 +635,7 @@ Scan Options:
       --concurrency <workers>    Number of concurrent ping workers (default 128)
       --timeout <duration>       Ping timeout duration per host (default 150ms RFC1918/LAN, 400ms WAN)
       --slow-threshold <duration> Latency threshold for slow/degraded color (default 100ms)
-      --arp-cache                Inspect local ARP neighbor cache instead of sending ICMP packets
+      --arp-cache                Two-phase progressive sweep: verify cached ARP hosts (<5ms), then discover subnet
 
 Grid Layout Options:
   -r, --rows <count>             Number of grid rows (auto-sized to fit IP range if omitted)
@@ -753,7 +753,7 @@ func buildExamplesText() string {
   # Multi-ping sweep (3 attempts per host, recording lowest RTT):
   pg 192.168.1.0/24 -p 3
 
-  # Instantaneous ARP neighbor cache sweep (<2ms, zero packets sent):
+  # Two-phase progressive sweep (verify known ARP hosts in <5ms, then discover subnet):
   pg 192.168.1.0/24 --arp-cache
 
   # Continuous live monitoring (refresh sweep every 5 seconds):
@@ -1024,7 +1024,7 @@ func runSweep(cmd *cobra.Command, flags *appFlags, args []string) error {
 	}
 
 	if flags.arpCache {
-		gridCfg.ScanMode = "arp_cache"
+		gridCfg.ScanMode = "two_phase_arp"
 	}
 
 	scanCfg := scanner.Config{
@@ -1084,8 +1084,18 @@ func executeSweepIteration(
 	prevResults []scanner.HostResult,
 ) ([]scanner.HostResult, error) {
 	if flags.arpCache {
-		_ = logger.Diagnostic("Inspecting local ARP neighbor cache for %d addresses (target: %s)...",
-			len(ips), flags.target)
+		_ = logger.Diagnostic("Starting two-phase sweep of %d addresses (target: %s, concurrency: %d)...",
+			len(ips), flags.target, flags.concurrency)
+		scanCfg.OnPhase1Complete = func(p1Results []scanner.HostResult, p1Duration time.Duration) {
+			p1Active := 0
+			for _, r := range p1Results {
+				if r.Status != scanner.StatusOffline {
+					p1Active++
+				}
+			}
+			_ = logger.Diagnostic("Phase 1 verified %d active cached hosts in %s. Running Phase 2 discovery for remaining addresses...",
+				p1Active, scanner.FormatDurationMS(p1Duration))
+		}
 	} else {
 		_ = logger.Diagnostic("Starting ping sweep of %d addresses (target: %s, concurrency: %d, cycle: #%d)...",
 			len(ips), flags.target, flags.concurrency, iteration)
@@ -1128,7 +1138,7 @@ func executeSweepIteration(
 
 	modeTag := ""
 	if flags.arpCache {
-		modeTag = " [ARP Cache]"
+		modeTag = " [Two-Phase ARP]"
 	}
 
 	_ = logger.Diagnostic("Sweep completed in %s%s. Active: %d (Fast: %d, Normal: %d, Slow: %d), Offline: %d, Deltas: %d",
@@ -1180,7 +1190,7 @@ func executeSweepIteration(
 	case "json":
 		scanMode := "icmp"
 		if flags.arpCache {
-			scanMode = "arp_cache"
+			scanMode = "two_phase_arp"
 		}
 		summary := sweepSummary{
 			Target:       flags.target,
@@ -1221,7 +1231,7 @@ func executeSweepIteration(
 		}
 		modeSummary := ""
 		if flags.arpCache {
-			modeSummary = " [ARP Cache]"
+			modeSummary = " [Two-Phase ARP]"
 		}
 		summaryLine := fmt.Sprintf("%d/%d hosts active%s%s. Output: %s",
 			activeCount, len(ips), modeSummary, deltaSummary, flags.outputPath)
@@ -1291,7 +1301,7 @@ func executeSweepIteration(
 			}
 			fmt.Print(asciiGrid)
 			if flags.arpCache {
-				_ = logger.Data("pg: %d/%d hosts active [ARP Cache Mode].", activeCount, len(ips))
+				_ = logger.Data("pg: %d/%d hosts active [Two-Phase ARP Mode].", activeCount, len(ips))
 			} else {
 				_ = logger.Data("pg: %d/%d hosts active.", activeCount, len(ips))
 			}
