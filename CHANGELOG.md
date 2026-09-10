@@ -4,6 +4,19 @@ All notable changes to PingGrid will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0] - 2026-09-10
+ 
+### Added
+- **Production 1.0.0 Release**: First official production release of PingGrid.
+- **Embedded Visual Documentation Gallery**: Fully documented all 5 built-in color schemes (`dark`, `light`, `earth`, `moss`, `linen`), terminal ANSI matrix, plain monochrome ASCII mode, and interactive HTML dashboards with embedded high-resolution screenshots.
+- **Local ARP Neighbor Cache Inspection (`--arp-cache`)**: Dedicated passive inspection flag reading OS neighbor tables in memory (<2ms execution, zero network packets).
+
+### Changed
+- Standardized CLI flag naming to `--arp-cache` and eliminated `--arp` and `--use-arp-cache`.
+- All latency metrics standardized to millisecond (`ms`) representation across console, HTML dashboards, and JSON outputs.
+
+---
+
 ## [0.6.0] - 2026-09-09
 
 ### Added
