@@ -21,9 +21,7 @@ type Config struct {
 	SlowThreshold time.Duration
 	GatewayIP     net.IP
 	Pings         int
-	BroadcastIPs     []net.IP
-	UseARPCache      bool
-	OnPhase1Complete func(results []HostResult, phase1Duration time.Duration)
+	BroadcastIPs  []net.IP
 }
 
 // DefaultScannerConfig returns sensible defaults for scanning a local network.
@@ -286,44 +284,11 @@ func Sweep(ctx context.Context, ips []net.IP, cfg Config, onProgress ProgressFun
 		mu        sync.Mutex
 	)
 
-	if cfg.UseARPCache {
-		var cachedTasks, uncachedTasks []task
-		arpTable, _ := ReadARPCache()
-		for i, ip := range ips {
-			t := task{index: i, ip: ip}
-			if _, exists := arpTable[ip.String()]; exists {
-				cachedTasks = append(cachedTasks, t)
-			} else {
-				uncachedTasks = append(uncachedTasks, t)
-			}
-		}
-
-		// Phase 1: Rapid verification of known cached hosts with real ICMP pings (<5ms)
-		phase1Start := time.Now()
-		if len(cachedTasks) > 0 {
-			runTaskBatch(ctx, cachedTasks, pinger, cfg, results, total, &completed, &mu, onProgress)
-		}
-		phase1Duration := time.Since(phase1Start)
-
-		if cfg.OnPhase1Complete != nil {
-			mu.Lock()
-			snapshot := make([]HostResult, total)
-			copy(snapshot, results)
-			mu.Unlock()
-			cfg.OnPhase1Complete(snapshot, phase1Duration)
-		}
-
-		// Phase 2: Full subnet discovery of remaining un-cached addresses
-		if len(uncachedTasks) > 0 && ctx.Err() == nil {
-			runTaskBatch(ctx, uncachedTasks, pinger, cfg, results, total, &completed, &mu, onProgress)
-		}
-	} else {
-		allTasks := make([]task, total)
-		for i, ip := range ips {
-			allTasks[i] = task{index: i, ip: ip}
-		}
-		runTaskBatch(ctx, allTasks, pinger, cfg, results, total, &completed, &mu, onProgress)
+	allTasks := make([]task, total)
+	for i, ip := range ips {
+		allTasks[i] = task{index: i, ip: ip}
 	}
+	runTaskBatch(ctx, allTasks, pinger, cfg, results, total, &completed, &mu, onProgress)
 
 	return results
 }

@@ -2,11 +2,6 @@
 
 PingGrid is an extremely fast, cross-platform network ping sweeper and subnet visualizer for IPv4 address ranges. It concurrently pings target addresses and renders an activity grid in multiple formats: **console ASCII/ANSI matrix**, **interactive HTML dashboard**, and **PNG image**.
 
-### Two-Phase Progressive Sweep (`--arp-cache`)
-PingGrid features an intelligent two-phase sweep engine:
-1. **Phase 1 (Instant Verification, <5ms)**: Queries the local OS ARP cache and immediately fires real ICMP pings to known active hosts. Because their MAC addresses are already cached in kernel memory, packets transmit with zero ARP broadcast delay, catching offline/dropped hosts in milliseconds with actual RTT measurements.
-2. **Phase 2 (Subnet Discovery)**: Concurrently sweeps remaining un-cached addresses across the subnet, detecting newly connected or rebooted devices without leaving any blind spots.
-
 Runs natively on **Windows**, **Linux**, and **macOS**. Code is almost completely AI-generated, under strict design constraints. Don't hate me, hate the robots.
 
 
@@ -45,9 +40,6 @@ pg.exe 192.168.1.0/24 --plain
 
 # Output machine-readable JSON summary
 pg.exe 192.168.1.0/24 --json
-
-# Two-phase progressive sweep (verify active ARP hosts in <5ms, then discover subnet)
-pg.exe 192.168.1.0/24 --arp-cache
 
 # Display help and CLI usage (pg.exe without parameters also displays help)
 pg.exe /?
@@ -106,7 +98,6 @@ Scan Options:
       --concurrency <workers>    Number of concurrent ping workers (default 128)
       --timeout <duration>       Ping timeout duration per host (default 150ms RFC1918/LAN, 400ms WAN)
       --slow-threshold <duration> Latency threshold for slow/degraded color (default 100ms)
-      --arp-cache                Two-phase progressive sweep: verify cached ARP hosts (<5ms), then discover subnet
 
 Grid Layout Options:
   -r, --rows <count>             Number of grid rows (auto-sized to fit IP range if omitted)

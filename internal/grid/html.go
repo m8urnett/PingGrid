@@ -478,7 +478,7 @@ const htmlTemplate = `<!DOCTYPE html>
         </div>
         {{- end }}
       </div>
-      <div class="meta">{{ .GeneratedAt }} &bull; {{ .Duration }}{{ if or (eq .ScanMode "arp_cache") (eq .ScanMode "two_phase_arp") }} &bull; <span style="color: #60a5fa; font-weight: 600;">[Two-Phase ARP]</span>{{ end }}</div>
+      <div class="meta">{{ .GeneratedAt }} &bull; {{ .Duration }}</div>
     </div>
   </header>
 

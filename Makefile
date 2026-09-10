@@ -1,6 +1,6 @@
 BINARY_NAME := pg
 VERSION := 1.0.0
-BUILD_NUM := 44
+BUILD_NUM := 45
 ifeq ($(OS),Windows_NT)
   GIT_COMMIT := $(shell git rev-parse --short HEAD 2>NUL || echo dev)
   BUILD_DATE := $(shell powershell -NoProfile -Command "(Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')" 2>NUL || echo unknown)

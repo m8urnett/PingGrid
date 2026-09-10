@@ -472,46 +472,18 @@ func TestShellCompletionSubcommands(t *testing.T) {
 	}
 }
 
-func TestARPCacheFlag(t *testing.T) {
-	// 1. Verify flag registration & removal of old flags
-	cmd, flags := newRootCmd()
-	if f := cmd.Flags().Lookup("arp-cache"); f == nil {
-		t.Fatal("Expected --arp-cache to be registered")
-	}
-	if fOld := cmd.Flags().Lookup("use-arp-cache"); fOld != nil {
-		t.Fatal("Expected --use-arp-cache to be removed")
-	}
-	if fArp := cmd.Flags().Lookup("arp"); fArp != nil {
-		t.Fatal("Expected --arp to be removed")
+func TestARPCacheRemoved(t *testing.T) {
+	cmd, _ := newRootCmd()
+	for _, flagName := range []string{"arp-cache", "arp_cache", "arp", "use-arp-cache"} {
+		if f := cmd.Flags().Lookup(flagName); f != nil {
+			t.Errorf("Expected --%s to be removed, but it was found", flagName)
+		}
 	}
 
-	// 2. Test executing sweep with --arp-cache (runs in <100ms)
-	cmd.SetArgs(normalizeCLIArgs([]string{"127.0.0.1", "--arp-cache", "--summary", "--quiet"}))
-	if err := cmd.Execute(); err != nil {
-		t.Fatalf("Command failed with --arp-cache: %v", err)
-	}
-	if !flags.arpCache {
-		t.Errorf("Expected flags.arpCache to be true")
-	}
-
-	// 3. Test executing with --arp_cache alias
-	cmd2, flags2 := newRootCmd()
-	cmd2.SetArgs(normalizeCLIArgs([]string{"127.0.0.1", "--arp_cache", "--summary", "--quiet"}))
-	if err := cmd2.Execute(); err != nil {
-		t.Fatalf("Command failed with --arp_cache: %v", err)
-	}
-	if !flags2.arpCache {
-		t.Errorf("Expected flags2.arpCache to be true")
-	}
-
-	// 4. Test Windows-style /arp-cache
-	cmd3, flags3 := newRootCmd()
-	cmd3.SetArgs(normalizeCLIArgs([]string{"127.0.0.1", "/arp-cache", "--summary", "--quiet"}))
-	if err := cmd3.Execute(); err != nil {
-		t.Fatalf("Command failed with /arp-cache: %v", err)
-	}
-	if !flags3.arpCache {
-		t.Errorf("Expected flags3.arpCache to be true")
+	// Executing with --arp-cache should fail with unknown flag error
+	cmd.SetArgs(normalizeCLIArgs([]string{"127.0.0.1", "--arp-cache"}))
+	if err := cmd.Execute(); err == nil {
+		t.Errorf("Expected error when running with removed --arp-cache flag, but got nil")
 	}
 }
 
