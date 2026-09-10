@@ -1,8 +1,13 @@
 BINARY_NAME := pg
 VERSION := 1.0.0
 BUILD_NUM := 44
-GIT_COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null || echo dev)
-BUILD_DATE := $(shell date -u +'%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || echo unknown)
+ifeq ($(OS),Windows_NT)
+  GIT_COMMIT := $(shell git rev-parse --short HEAD 2>NUL || echo dev)
+  BUILD_DATE := $(shell powershell -NoProfile -Command "(Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')" 2>NUL || echo unknown)
+else
+  GIT_COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null || echo dev)
+  BUILD_DATE := $(shell date -u +'%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || echo unknown)
+endif
 
 LDFLAGS := -ldflags "\
 	-s -w \
@@ -64,7 +69,11 @@ install:
 	go install $(LDFLAGS) .
 
 clean:
+ifeq ($(OS),Windows_NT)
+	-@del /q /f $(BINARY_NAME).exe bin\$(BINARY_NAME)* coverage.out coverage.html grid.png 2>NUL || exit 0
+else
 	rm -f $(BINARY_NAME) $(BINARY_NAME).exe bin/$(BINARY_NAME)* coverage.out coverage.html grid.png
+endif
 
 check: fmt vet test
 
