@@ -47,6 +47,7 @@ type GridConfig struct {
 	ColorSlow      color.RGBA
 	ColorBorder    color.RGBA
 	ColorFrame     color.RGBA
+	ScanMode       string
 }
 
 // DefaultConfig returns the standard GridConfig using the default dark scheme.

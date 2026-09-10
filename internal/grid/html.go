@@ -56,6 +56,7 @@ type HTMLData struct {
 	ChangedCount    int
 	Deltas          []scanner.HostDelta
 	Cells           []HTMLCell
+	ScanMode        string
 }
 
 const htmlTemplate = `<!DOCTYPE html>
@@ -477,7 +478,7 @@ const htmlTemplate = `<!DOCTYPE html>
         </div>
         {{- end }}
       </div>
-      <div class="meta">{{ .GeneratedAt }} &bull; {{ .Duration }}</div>
+      <div class="meta">{{ .GeneratedAt }} &bull; {{ .Duration }}{{ if eq .ScanMode "arp_cache" }} &bull; <span style="color: #60a5fa; font-weight: 600;">[ARP Cache]</span>{{ end }}</div>
     </div>
   </header>
 
@@ -1018,6 +1019,7 @@ func buildHTMLData(cfg GridConfig, results []scanner.HostResult, sweepDuration t
 		ChangedCount:    changedCount,
 		Deltas:          deltas,
 		Cells:           cells,
+		ScanMode:        cfg.ScanMode,
 	}
 }
 

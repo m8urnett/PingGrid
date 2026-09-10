@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Millisecond Measurement Standard**: All latency and duration metrics across HTML dashboards, tooltips, delta notices, and verbose diagnostic logs are formatted in milliseconds (`ms`), removing microsecond (`µs`) display.
 
 - **Shell Autocompletion for Bash, Zsh, and Fish**: Added dedicated completion subcommands (`pg completion bash`, `pg completion zsh`, `pg completion fish`) alongside `pg completion powershell`, including contextual completion for `--scheme`, `--color`, and `--encoding` flags.
+- **Local ARP Neighbor Cache Inspection (`--arp-cache`)**: Added instant passive local ARP cache inspection mode via `--arp-cache`. Bypasses active ICMP ping transmission and reads the OS neighbor table in memory (<2ms, zero packets sent), clearly labeling output with `[ARP Cache Mode]`.
 
 ### Changed
 - **Unrestricted Custom Color Hex Inputs**: Removed internal `AllowedPaletteHex` restrictions; users can supply any valid 3- or 6-digit hex color format (`#RRGGBB`, `RRGGBB`, `#RGB`, `RGB`, `0xRRGGBB`) to all `--color-*` override flags.

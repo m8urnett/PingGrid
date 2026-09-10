@@ -47,6 +47,7 @@ type appFlags struct {
 	showVersion    bool
 	showExamples   bool
 	pings          int
+	arpCache       bool
 
 	// Dedicated output format flags
 	optASCII   string
@@ -220,6 +221,8 @@ func normalizeFlagToken(token string) (string, bool) {
 			return "--slow-threshold=" + val, true
 		}
 		return "--slow-threshold", true
+	case "arp-cache", "arp_cache", "arpcache":
+		return "--arp-cache", true
 	case "rows", "row":
 		if hasVal {
 			return "--rows=" + val, true
@@ -478,6 +481,9 @@ and renders an activity grid (terminal ASCII display, interactive HTML, or PNG i
 	rootCmd.Flags().DurationVarP(&flags.refresh, "refresh", "R", 0, "Continuous sweep refresh interval (e.g. 5s, 10s; 0 runs once)")
 	rootCmd.Flags().IntVar(&flags.concurrency, "concurrency", 128, "Number of concurrent ping workers")
 	rootCmd.Flags().DurationVar(&flags.slowThreshold, "slow-threshold", 100*time.Millisecond, "Latency threshold for slow/degraded color")
+	rootCmd.Flags().BoolVar(&flags.arpCache, "arp-cache", false, "Inspect local ARP neighbor cache instead of sending ICMP packets")
+	rootCmd.Flags().BoolVar(&flags.arpCache, "arp_cache", false, "Alias for --arp-cache")
+	_ = rootCmd.Flags().MarkHidden("arp_cache")
 
 	// Grid Layout Options
 	rootCmd.Flags().IntVarP(&flags.rows, "rows", "r", grid.DefaultRows, "Number of grid rows (auto-sized to fit IP range if omitted)")
@@ -629,6 +635,7 @@ Scan Options:
       --concurrency <workers>    Number of concurrent ping workers (default 128)
       --timeout <duration>       Ping timeout duration per host (default 150ms RFC1918/LAN, 400ms WAN)
       --slow-threshold <duration> Latency threshold for slow/degraded color (default 100ms)
+      --arp-cache                Inspect local ARP neighbor cache instead of sending ICMP packets
 
 Grid Layout Options:
   -r, --rows <count>             Number of grid rows (auto-sized to fit IP range if omitted)
@@ -746,6 +753,9 @@ func buildExamplesText() string {
   # Multi-ping sweep (3 attempts per host, recording lowest RTT):
   pg 192.168.1.0/24 -p 3
 
+  # Instantaneous ARP neighbor cache sweep (<2ms, zero packets sent):
+  pg 192.168.1.0/24 --arp-cache
+
   # Continuous live monitoring (refresh sweep every 5 seconds):
   pg 192.168.1.0/24 -R 5s
 
@@ -771,6 +781,7 @@ func buildExamplesText() string {
 
 type sweepSummary struct {
 	Target       string        `json:"target"`
+	ScanMode     string        `json:"scan_mode"`
 	TotalHosts   int           `json:"total_hosts"`
 	OnlineHosts  int           `json:"online_hosts"`
 	FastHosts    int           `json:"fast_hosts"`
@@ -1012,6 +1023,10 @@ func runSweep(cmd *cobra.Command, flags *appFlags, args []string) error {
 		pingTimeout = flags.Timeout
 	}
 
+	if flags.arpCache {
+		gridCfg.ScanMode = "arp_cache"
+	}
+
 	scanCfg := scanner.Config{
 		Count:         len(ips),
 		Concurrency:   flags.concurrency,
@@ -1020,6 +1035,7 @@ func runSweep(cmd *cobra.Command, flags *appFlags, args []string) error {
 		GatewayIP:     gwIP,
 		Pings:         flags.pings,
 		BroadcastIPs:  scanner.ExtractBroadcastIPs(flags.target),
+		UseARPCache:   flags.arpCache,
 	}
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -1067,8 +1083,13 @@ func executeSweepIteration(
 	iteration int,
 	prevResults []scanner.HostResult,
 ) ([]scanner.HostResult, error) {
-	_ = logger.Diagnostic("Starting ping sweep of %d addresses (target: %s, concurrency: %d, cycle: #%d)...",
-		len(ips), flags.target, flags.concurrency, iteration)
+	if flags.arpCache {
+		_ = logger.Diagnostic("Inspecting local ARP neighbor cache for %d addresses (target: %s)...",
+			len(ips), flags.target)
+	} else {
+		_ = logger.Diagnostic("Starting ping sweep of %d addresses (target: %s, concurrency: %d, cycle: #%d)...",
+			len(ips), flags.target, flags.concurrency, iteration)
+	}
 
 	start := time.Now()
 	results := scanner.Sweep(ctx, ips, scanCfg, func(completed, total int, res scanner.HostResult) {
@@ -1105,8 +1126,13 @@ func executeSweepIteration(
 		}
 	}
 
-	_ = logger.Diagnostic("Sweep completed in %s. Active: %d (Fast: %d, Normal: %d, Slow: %d), Offline: %d, Deltas: %d",
-		scanner.FormatDurationMS(duration), activeCount, highlightCount, onlineCount, slowCount, offlineCount, len(deltas))
+	modeTag := ""
+	if flags.arpCache {
+		modeTag = " [ARP Cache]"
+	}
+
+	_ = logger.Diagnostic("Sweep completed in %s%s. Active: %d (Fast: %d, Normal: %d, Slow: %d), Offline: %d, Deltas: %d",
+		scanner.FormatDurationMS(duration), modeTag, activeCount, highlightCount, onlineCount, slowCount, offlineCount, len(deltas))
 
 	// Save to file if output path is configured
 	if flags.outputPath != "" {
@@ -1152,8 +1178,13 @@ func executeSweepIteration(
 		}
 
 	case "json":
+		scanMode := "icmp"
+		if flags.arpCache {
+			scanMode = "arp_cache"
+		}
 		summary := sweepSummary{
 			Target:       flags.target,
+			ScanMode:     scanMode,
 			TotalHosts:   len(ips),
 			OnlineHosts:  activeCount,
 			FastHosts:    highlightCount,
@@ -1188,8 +1219,12 @@ func executeSweepIteration(
 		if len(deltas) > 0 {
 			deltaSummary = fmt.Sprintf(" (+%d joined, -%d dropped)", len(joinedHosts), len(droppedHosts))
 		}
-		summaryLine := fmt.Sprintf("%d/%d hosts active%s. Output: %s",
-			activeCount, len(ips), deltaSummary, flags.outputPath)
+		modeSummary := ""
+		if flags.arpCache {
+			modeSummary = " [ARP Cache]"
+		}
+		summaryLine := fmt.Sprintf("%d/%d hosts active%s%s. Output: %s",
+			activeCount, len(ips), modeSummary, deltaSummary, flags.outputPath)
 		if flags.outputPath != "" {
 			if err := writeOutputFile(flags.outputPath, []byte(summaryLine+"\n")); err != nil {
 				return nil, errors.New(errors.ExitOutput, errors.CodeOutputWriteFailed, "Failed to save summary file", flags.outputPath, "Ensure target directory exists and is writable", err)
@@ -1255,7 +1290,11 @@ func executeSweepIteration(
 				}
 			}
 			fmt.Print(asciiGrid)
-			_ = logger.Data("pg: %d/%d hosts active.", activeCount, len(ips))
+			if flags.arpCache {
+				_ = logger.Data("pg: %d/%d hosts active [ARP Cache Mode].", activeCount, len(ips))
+			} else {
+				_ = logger.Data("pg: %d/%d hosts active.", activeCount, len(ips))
+			}
 		}
 	}
 

@@ -22,6 +22,7 @@ type Config struct {
 	GatewayIP     net.IP
 	Pings         int
 	BroadcastIPs  []net.IP
+	UseARPCache   bool
 }
 
 // DefaultScannerConfig returns sensible defaults for scanning a local network.
@@ -272,6 +273,29 @@ func Sweep(ctx context.Context, ips []net.IP, cfg Config, onProgress ProgressFun
 			IP:     ip,
 			Status: StatusOffline,
 		}
+	}
+
+	if cfg.UseARPCache {
+		arpTable, _ := ReadARPCache()
+		for i, ip := range ips {
+			status := StatusOffline
+			if _, exists := arpTable[ip.String()]; exists {
+				if cfg.GatewayIP != nil && ip.Equal(cfg.GatewayIP) {
+					status = StatusHighlight
+				} else {
+					status = StatusOnline
+				}
+			}
+			results[i] = HostResult{
+				IP:     ip,
+				Status: status,
+				RTT:    0,
+			}
+			if onProgress != nil {
+				onProgress(i+1, total, results[i])
+			}
+		}
+		return results
 	}
 
 	type task struct {

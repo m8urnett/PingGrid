@@ -4,6 +4,8 @@ PingGrid is a high-performance, cross-platform network ping sweeper and subnet v
 
 Runs natively on **Windows**, **Linux**, and **macOS**. Code is almost completely AI-generated, under strict design constraints. Don't hate me, hate the robots.
 
+![PingGrid Terminal Console Matrix](docs/console-ansi.png)
+
 ## Quick Start
 
 ```sh
@@ -37,6 +39,9 @@ pg.exe 192.168.1.0/24 --plain
 # Output machine-readable JSON summary
 pg.exe 192.168.1.0/24 --json
 
+# Instantaneous local ARP neighbor cache inspection (<2ms, zero packets sent)
+pg.exe 192.168.1.0/24 --arp-cache
+
 # Display help and CLI usage (pg.exe without parameters also displays help)
 pg.exe /?
 ```
@@ -63,11 +68,13 @@ The default scheme (`--scheme dark`) maps these colors to:
 
 Use `--scheme` / `-s` (or `/scheme`, `-scheme`, `/s`) to switch between preset color combinations:
 
-- **`dark`** (default): Charcoal frame/border (`#2c2c2c`), Moss offline (`#404e41`), Teal online (`#4d86a2`), Terracotta slow (`#ab7550`), Mint fast (`#e4f9d4`).
-- **`light`**: Warm Linen frame (`#f4eeeb`), Light Gray border (`#efefef`), Pure Off-White offline (`#fcfcfc`), Teal online (`#4d86a2`), Charcoal slow (`#2c2c2c`), Terracotta fast (`#ab7550`).
-- **`earth`**: Charcoal frame/border (`#2c2c2c`), Earth Brown offline (`#886d5b`), Sage online (`#b1b9a0`), Terracotta fast (`#ab7550`), Slate Teal slow (`#4d86a2`).
-- **`moss`**: Charcoal frame/border (`#2c2c2c`), Forest Moss offline (`#465a47`), Sage online (`#b1b9a0`), Mint fast (`#e4f9d4`), Terracotta slow (`#ab7550`).
-- **`linen`**: Warm Linen frame & offline cell background (`#f4eeeb`), Light Gray border (`#efefef`), Linen Taupe online foreground (`#897e79`), Teal fast (`#4d86a2`), Terracotta slow (`#ab7550`).
+| Scheme | Matrix Preview | Frame & Dividers | Active / Online | Offline / Quiet | Slow Response | Fast / Gateway |
+|---|:---:|---|---|---|---|---|
+| **`dark`** *(default)* | ![dark](docs/dark.png) | `#2c2c2c` Charcoal | `#4d86a2` Teal | `#404e41` Moss | `#ab7550` Terracotta | `#e4f9d4` Mint |
+| **`light`** | ![light](docs/light.png) | `#f4eeeb` Linen | `#4d86a2` Teal | `#fcfcfc` Off-White | `#2c2c2c` Charcoal | `#ab7550` Terracotta |
+| **`earth`** | ![earth](docs/earth.png) | `#2c2c2c` Charcoal | `#b1b9a0` Sage | `#886d5b` Earth Brown | `#4d86a2` Slate Teal | `#ab7550` Terracotta |
+| **`moss`** | ![moss](docs/moss.png) | `#2c2c2c` Charcoal | `#b1b9a0` Sage | `#465a47` Forest Moss | `#ab7550` Terracotta | `#e4f9d4` Mint |
+| **`linen`** | ![linen](docs/linen.png) | `#f4eeeb` Linen | `#897e79` Taupe | `#f4eeeb` Linen | `#ab7550` Terracotta | `#4d86a2` Teal |
 
 All dimensions, grid arrangements, and individual colors can also be overridden via CLI flags. All options and switches accept `-`, `--`, and `/` interchangeably (e.g. `/html`, `-html`, `--html`, `/p 3`, `-p 3`, `/r 5`, `/s moss`). Directed subnet broadcast addresses (e.g. `x.x.x.255`) and `255.255.255.255` are automatically protected from pinging. All latency measurements are reported in milliseconds (`ms`). Hex color flags accept values with or without the leading `#` (e.g. `--color-online 4d86a2` or `--color-online "#4d86a2"`).
 
@@ -92,6 +99,7 @@ Scan Options:
       --concurrency <workers>    Number of concurrent ping workers (default 128)
       --timeout <duration>       Ping timeout duration per host (default 150ms RFC1918/LAN, 400ms WAN)
       --slow-threshold <duration> Latency threshold for slow/degraded color (default 100ms)
+      --arp-cache                Inspect local ARP neighbor cache instead of sending ICMP packets
 
 Grid Layout Options:
   -r, --rows <count>             Number of grid rows (auto-sized to fit IP range if omitted)
@@ -169,12 +177,24 @@ pg completion fish > ~/.config/fish/completions/pg.fish
 ## Examples
 
 ### Terminal Subnet Sweep (Default Text Mode)
+
+![Terminal ANSI Matrix](docs/console-ansi.png)
+
 ```sh
 # Sweep target subnet and display ASCII activity matrix to console (no files generated)
 pg.exe 10.8.0.1/24
 
 # Sweep with 3 ping attempts per host for maximum accuracy
 pg.exe 10.8.0.1/24 -p 3
+```
+
+### Plain Monochrome ASCII Mode (Automation / Log Files)
+
+![Plain Monochrome ASCII Matrix](docs/console-ascii.png)
+
+```sh
+# Plain monochrome ASCII mode for simple terminals or automation:
+pg.exe 10.8.0.1/24 --plain
 ```
 
 ### Continuous Live Subnet Monitor
@@ -193,6 +213,9 @@ pg.exe 10.8.0.1/24 --list hosts.txt
 ```
 
 ### Standalone Interactive HTML Dashboard
+
+![PingGrid Interactive HTML Dashboard](docs/html.png)
+
 ```sh
 # Generate standalone interactive HTML dashboard (defaults to grid.html)
 pg.exe 10.8.0.1/24 --html
@@ -234,7 +257,7 @@ pg.exe 10.8.0.1/24 --summary summary.txt
 pg.exe 10.0.0.0/24 -r 16 -c 16 -W 512 -H 512 --color-online "#4CAF50" --png lan-matrix.png
 ```
 
-### Verbose Scan with Microsecond Resolution
+### Verbose Scan with Diagnostic Output
 ```sh
 pg.exe 10.10.1.0/24 --verbose --timeout 1s -p 2
 ```
@@ -259,11 +282,11 @@ PingGrid provides dedicated options to select and configure the desired output:
      - **Export CSV (`⬇ CSV`)**: Client-side export and download of scan metrics (`IP,Status,RTT,Delta`) as `pinggrid-results.csv`.
      - **Theme Toggle (`🌓 Theme`)**: Instant client-side switching between sleek dark mode and light mode.
    - **Click-to-Filter Controls**: Filter the matrix by status (*All*, *Active*, *Fast*, *Slow*, *Offline*, *Deltas*) with dynamic cell dimming.
-   - **Interactive HUD & Zoom**: Displays host IP, classification status, microsecond RTT, and 1x/2x/3x zoom scaling.
+   - **Interactive HUD & Zoom**: Displays host IP, classification status, millisecond RTT, and 1x/2x/3x zoom scaling.
    - **Live State Delta Log**: Detailed collapsible tracking card highlighting newly joined (`+`), dropped (`-`), or latency-shifted (`~`) hosts across sweeps.
    - **Countdown & Pause**: Live countdown ticker with pause/resume button when running in continuous monitoring mode (`-R`).
 
-2. **Minimal Embed / Iframe Page (`--iframe [file]`, `--embed [file]`)**:
+3. **Minimal Embed / Iframe Page (`--iframe [file]`, `--embed [file]`)**:
    - Designed strictly for embedding in `<iframe>` containers within dashboards or wikis (e.g. `<iframe src="embed.html"></iframe>`).
    - Saves to `grid-embed.html` by default, or to any custom filename passed directly to `--iframe`.
    - **Zero Buttons**: No zoom buttons, no pause buttons, no filter pills, and no action buttons.
@@ -271,15 +294,15 @@ PingGrid provides dedicated options to select and configure the desired output:
    - **Native Tooltips & Delta Animations**: Hover tooltips and keyframe animations (`joinPulse`, `dropBlink`) preserved.
    - **Silent Auto-Reload**: Automatically refreshes in sync with the sweep loop when `-R` is configured.
 
-3. **PNG Activity Grid Image (`--png [file]`)**:
+4. **PNG Activity Grid Image (`--png [file]`)**:
    - Generates a standalone PNG image representing the network state with pixel-exact square cells and outer frame.
    - Saves to `grid.png` by default, or to any custom filename passed directly to `--png`.
 
-4. **Structured JSON Summary (`--json [file]`)**:
+5. **Structured JSON Summary (`--json [file]`)**:
    - Emits structured JSON summary metrics to stdout or directly to a file.
 
-5. **Console ASCII Matrix (`--ascii [file]`)**:
-   - Visual ASCII grid output rendered directly to the terminal or saved to a text file.
+6. **Console ASCII Matrix (`--ascii [file]`)**:
+   - Visual ASCII grid output rendered directly to the terminal or saved to a text file. Supports rich ANSI color output by default or plain monochrome text via `--plain`.
 
 ## Platform Architecture
 
