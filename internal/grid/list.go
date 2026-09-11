@@ -52,12 +52,14 @@ func RenderList(results []scanner.HostResult, isPlain bool, showOffline bool, to
 		rtt       string
 		statusRaw string
 		statusFmt string
+		roleFmt   string
 	}
 
 	rows := make([]rowData, len(displayHosts))
 	hostWidth := len("HOST")
 	ipWidth := len("IP")
 	rttWidth := len("RTT")
+	var hasAnyRoles bool
 
 	for i, r := range displayHosts {
 		hName := r.Hostname
@@ -67,7 +69,9 @@ func RenderList(results []scanner.HostResult, isPlain bool, showOffline bool, to
 		ipStr := r.IP.String()
 
 		rttStr := "-"
-		if r.Status != scanner.StatusOffline {
+		if r.Status == scanner.StatusSilent {
+			rttStr = "- (arp)"
+		} else if r.Status != scanner.StatusOffline {
 			rttStr = fmt.Sprintf("%.2fms", float64(r.RTT.Nanoseconds())/1e6)
 		}
 
@@ -85,8 +89,35 @@ func RenderList(results []scanner.HostResult, isPlain bool, showOffline bool, to
 				statusFmt = "\033[96monline\033[0m"
 			case scanner.StatusSlow:
 				statusFmt = "\033[93mslow\033[0m"
+			case scanner.StatusSilent:
+				statusFmt = "\033[38;5;214msilent\033[0m"
 			default:
 				statusFmt = "\033[90moffline\033[0m"
+			}
+		}
+
+		roleFmt := ""
+		if len(r.Roles) > 0 {
+			hasAnyRoles = true
+			if isPlain {
+				roleFmt = r.RoleBadge()
+			} else {
+				var coloredRoles []string
+				for _, ro := range r.Roles {
+					switch ro {
+					case scanner.RoleLocalHost:
+						coloredRoles = append(coloredRoles, "\033[96;1mMe\033[0m")
+					case scanner.RoleGateway:
+						coloredRoles = append(coloredRoles, "\033[92;1mGateway\033[0m")
+					case scanner.RoleDNS:
+						coloredRoles = append(coloredRoles, "\033[95;1mDNS\033[0m")
+					case scanner.RoleDHCP:
+						coloredRoles = append(coloredRoles, "\033[94;1mDHCP\033[0m")
+					default:
+						coloredRoles = append(coloredRoles, string(ro))
+					}
+				}
+				roleFmt = "[" + strings.Join(coloredRoles, ", ") + "]"
 			}
 		}
 
@@ -96,6 +127,7 @@ func RenderList(results []scanner.HostResult, isPlain bool, showOffline bool, to
 			rtt:       rttStr,
 			statusRaw: statusRaw,
 			statusFmt: statusFmt,
+			roleFmt:   roleFmt,
 		}
 
 		if len(hName) > hostWidth {
@@ -109,11 +141,68 @@ func RenderList(results []scanner.HostResult, isPlain bool, showOffline bool, to
 		}
 	}
 
-	var b strings.Builder
-	fmt.Fprintf(&b, "%-*s  %-*s  %*s  %s\n", hostWidth, "HOST", ipWidth, "IP", rttWidth, "RTT", "STATUS")
+	var hasAnyMAC bool
+	macWidth := len("MAC ADDRESS")
+	vendorWidth := len("VENDOR")
+	for _, r := range displayHosts {
+		if r.MAC != "" {
+			hasAnyMAC = true
+			if len(r.MAC) > macWidth {
+				macWidth = len(r.MAC)
+			}
+			if len(r.Vendor) > vendorWidth {
+				vendorWidth = len(r.Vendor)
+			}
+		}
+	}
 
-	for _, row := range rows {
-		fmt.Fprintf(&b, "%-*s  %-*s  %*s  %s\n", hostWidth, row.host, ipWidth, row.ip, rttWidth, row.rtt, row.statusFmt)
+	var b strings.Builder
+	for i, row := range rows {
+		r := displayHosts[i]
+		prefix := ""
+		if hasAnyRoles {
+			prefix = "  "
+			if row.roleFmt != "" {
+				prefix = "+ "
+			}
+		}
+
+		if i == 0 {
+			// Print header
+			headerPrefix := ""
+			if hasAnyRoles {
+				headerPrefix = "  "
+			}
+			b.WriteString(headerPrefix)
+			fmt.Fprintf(&b, "%-*s  %-*s", hostWidth, "HOST", ipWidth, "IP")
+			if hasAnyMAC {
+				fmt.Fprintf(&b, "  %-*s  %-*s", macWidth, "MAC ADDRESS", vendorWidth, "VENDOR")
+			}
+			fmt.Fprintf(&b, "  %*s  %-8s", rttWidth, "RTT", "STATUS")
+			if hasAnyRoles {
+				b.WriteString("  ROLE")
+			}
+			b.WriteString("\n")
+		}
+
+		b.WriteString(prefix)
+		fmt.Fprintf(&b, "%-*s  %-*s", hostWidth, row.host, ipWidth, row.ip)
+		if hasAnyMAC {
+			mStr := r.MAC
+			if mStr == "" {
+				mStr = "-"
+			}
+			vStr := r.Vendor
+			if vStr == "" {
+				vStr = "-"
+			}
+			fmt.Fprintf(&b, "  %-*s  %-*s", macWidth, mStr, vendorWidth, vStr)
+		}
+		fmt.Fprintf(&b, "  %*s  %-8s", rttWidth, row.rtt, row.statusFmt)
+		if hasAnyRoles && row.roleFmt != "" {
+			fmt.Fprintf(&b, "  %s", row.roleFmt)
+		}
+		b.WriteString("\n")
 	}
 
 	var joinedCount, droppedCount int

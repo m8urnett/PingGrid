@@ -10,19 +10,25 @@ import (
 	"time"
 
 	"github.com/m8urnett/PingGrid/internal/scanner"
+	"github.com/m8urnett/toolkit/paths"
 )
 
 // HTMLCell represents a single grid cell for HTML template rendering.
 type HTMLCell struct {
-	Index   int
-	IP      string
-	Status  string
-	Color   string
-	RTT     string
-	IsUp    bool
-	Tooltip string
-	Delta   string // "joined", "dropped", "changed", or ""
-	IsEmpty bool
+	Index    int
+	IP       string
+	Status   string
+	Color    string
+	RTT      string
+	MAC      string
+	Vendor   string
+	IsUp     bool
+	IsSilent bool
+	Tooltip  string
+	Delta    string // "joined", "dropped", "changed", or ""
+	Role     string // e.g. "[Me]", "[Gateway, DNS]"
+	IsMe     bool
+	IsEmpty  bool
 }
 
 // HTMLData holds the complete template data for HTML export.
@@ -48,6 +54,7 @@ type HTMLData struct {
 	Online          int
 	Fast            int
 	Slow            int
+	Silent          int
 	Offline         int
 	Duration        string
 	RefreshInterval int
@@ -57,6 +64,8 @@ type HTMLData struct {
 	Deltas          []scanner.HostDelta
 	Cells           []HTMLCell
 	ScanMode        string
+	LinkHealth      *scanner.LinkHealth
+	InterfaceName   string
 }
 
 const htmlTemplate = `<!DOCTYPE html>
@@ -440,6 +449,87 @@ const htmlTemplate = `<!DOCTYPE html>
   .scale-btn:hover {
     background: #383838;
   }
+  .cell-me {
+    outline: 2px solid #38bdf8 !important;
+    box-shadow: 0 0 8px rgba(56, 189, 248, 0.8) !important;
+  }
+  .cell-silent {
+    outline: 2px dashed #f59e0b !important;
+    box-shadow: 0 0 8px rgba(245, 158, 11, 0.7) !important;
+  }
+  .hud-card {
+    width: 100%;
+    background: rgba(33, 37, 43, 0.8);
+    border: 1px solid #3e4451;
+    border-radius: 8px;
+    padding: 8px 12px;
+    margin-bottom: 12px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 0.82rem;
+  }
+  body.light-theme .hud-card {
+    background: rgba(243, 244, 246, 0.9);
+    border-color: #d1d5db;
+  }
+  .hud-adapter-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 600;
+  }
+  .hud-pill-dim {
+    color: #8b949e;
+    font-weight: 400;
+    font-size: 0.76rem;
+  }
+  body.light-theme .hud-pill-dim {
+    color: #6b7280;
+  }
+  .hud-badges {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+  }
+  .hud-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 8px;
+    border-radius: 6px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    border: 1px solid transparent;
+  }
+  .hud-badge-speed {
+    background: rgba(56, 189, 248, 0.15);
+    border-color: rgba(56, 189, 248, 0.35);
+    color: #38bdf8;
+  }
+  .hud-badge-mtu {
+    background: rgba(168, 85, 247, 0.15);
+    border-color: rgba(168, 85, 247, 0.35);
+    color: #c084fc;
+  }
+  .hud-badge-dhcp {
+    background: rgba(74, 222, 128, 0.15);
+    border-color: rgba(74, 222, 128, 0.35);
+    color: #4ade80;
+  }
+  .hud-badge-static {
+    background: rgba(148, 163, 184, 0.15);
+    border-color: rgba(148, 163, 184, 0.35);
+    color: #94a3b8;
+  }
+  .hud-badge-wifi {
+    background: rgba(251, 191, 36, 0.15);
+    border-color: rgba(251, 191, 36, 0.35);
+    color: #fbbf24;
+  }
 </style>
 </head>
 
@@ -482,11 +572,40 @@ const htmlTemplate = `<!DOCTYPE html>
     </div>
   </header>
 
+  {{- if .LinkHealth }}
+  <div class="hud-card">
+    <div class="hud-adapter-title">
+      <span class="hud-icon">{{ if .LinkHealth.IsWireless }}📶{{ else }}🔌{{ end }}</span>
+      <span class="hud-adapter-name">{{ if .LinkHealth.AdapterModel }}{{ .LinkHealth.AdapterModel }}{{ else }}{{ .InterfaceName }}{{ end }}</span>
+      {{- if .InterfaceName }}<span class="hud-pill-dim">({{ .InterfaceName }})</span>{{- end }}
+    </div>
+    <div class="hud-badges">
+      {{- if .LinkHealth.LinkSpeedStr }}
+      <span class="hud-badge hud-badge-speed">⚡ {{ .LinkHealth.LinkSpeedStr }}{{ if .LinkHealth.Duplex }} {{ .LinkHealth.Duplex }}{{ end }}</span>
+      {{- end }}
+      {{- if gt .LinkHealth.MTU 0 }}
+      <span class="hud-badge hud-badge-mtu">📦 MTU {{ .LinkHealth.MTU }}</span>
+      {{- end }}
+      {{- if .LinkHealth.DHCPEnabled }}
+      <span class="hud-badge hud-badge-dhcp">🟢 DHCP {{ if .LinkHealth.DHCPStatus }}{{ .LinkHealth.DHCPStatus }}{{ else }}Active{{ end }}</span>
+      {{- else }}
+      <span class="hud-badge hud-badge-static">⚪ Static IP</span>
+      {{- end }}
+      {{- if .LinkHealth.IsWireless }}
+      <span class="hud-badge hud-badge-wifi">📶 {{ .LinkHealth.SSID }}{{ if .LinkHealth.Band }} &bull; {{ .LinkHealth.Band }}{{ end }}{{ if gt .LinkHealth.SignalPercent 0 }} &bull; {{ .LinkHealth.SignalPercent }}% ({{ .LinkHealth.SignalDBm }} dBm){{ end }}</span>
+      {{- end }}
+    </div>
+  </div>
+  {{- end }}
+
   <div class="stats-bar">
     <button class="filter-pill active" onclick="setFilter('all', this)" title="Show all hosts">All: {{ .Total }}</button>
     <button class="filter-pill" onclick="setFilter('active', this)" title="Highlight active responding hosts"><span class="stat-dot dot-online"></span> Active: {{ .Online }}</button>
     <button class="filter-pill" onclick="setFilter('fast', this)" title="Highlight fast responses (&le;20ms)"><span class="stat-dot dot-fast"></span> Fast: {{ .Fast }}</button>
     <button class="filter-pill" onclick="setFilter('slow', this)" title="Highlight slow responses (&ge;100ms)"><span class="stat-dot dot-slow"></span> Slow: {{ .Slow }}</button>
+    {{- if gt .Silent 0 }}
+    <button class="filter-pill" onclick="setFilter('silent', this)" title="Highlight silent/firewalled hosts (ARP active)"><span class="stat-dot" style="background:#f59e0b;"></span> Silent: {{ .Silent }}</button>
+    {{- end }}
     <button class="filter-pill" onclick="setFilter('offline', this)" title="Highlight offline hosts"><span class="stat-dot dot-offline"></span> Offline: {{ .Offline }}</button>
     {{- if or (gt .JoinedCount 0) (gt .DroppedCount 0) }}
     <button class="filter-pill" onclick="setFilter('deltas', this)" title="Highlight recently changed hosts">
@@ -499,10 +618,10 @@ const htmlTemplate = `<!DOCTYPE html>
   <div id="canvas-wrapper" class="grid-canvas">
     <div class="grid-table">
       {{- range .Cells }}
-      <div class="cell{{ if .Delta }} cell-{{ .Delta }}{{ end }}{{ if .IsEmpty }} cell-empty{{ end }}" style="background-color: {{ .Color }};"
-           data-ip="{{ .IP }}" data-status="{{ .Status }}" data-rtt="{{ .RTT }}" data-delta="{{ .Delta }}"
+      <div class="cell{{ if .Delta }} cell-{{ .Delta }}{{ end }}{{ if .IsMe }} cell-me{{ end }}{{ if .IsSilent }} cell-silent{{ end }}{{ if .IsEmpty }} cell-empty{{ end }}" style="background-color: {{ .Color }};"
+           data-ip="{{ .IP }}" data-status="{{ .Status }}" data-rtt="{{ .RTT }}" data-delta="{{ .Delta }}" data-role="{{ .Role }}" data-mac="{{ .MAC }}" data-vendor="{{ .Vendor }}"
            title="{{ .Tooltip }}"
-           {{ if not .IsEmpty }}onmouseover="updateHud('{{ .IP }}', '{{ .Status }}', '{{ .RTT }}', '{{ .Delta }}')"
+           {{ if not .IsEmpty }}onmouseover="updateHud('{{ .IP }}', '{{ .Status }}', '{{ .RTT }}', '{{ .Delta }}', '{{ .Role }}', '{{ .MAC }}', '{{ .Vendor }}')"
            onmouseout="resetHud()"{{ end }}></div>
       {{- end }}
     </div>
@@ -541,14 +660,21 @@ const htmlTemplate = `<!DOCTYPE html>
 </div>
 
 <script>
-  function updateHud(ip, status, rtt, delta) {
+  function updateHud(ip, status, rtt, delta, role, mac, vendor) {
     var hud = document.getElementById('hud');
     if (!hud) return;
+    var roleBadge = '';
+    if (role) roleBadge = ' &bull; <span style="color:#38bdf8;font-weight:bold">' + role + '</span>';
+    var hwInfo = '';
+    if (mac) {
+      hwInfo = ' &bull; <span style="color:#94a3b8;font-family:monospace">' + mac + '</span>';
+      if (vendor) hwInfo += ' (' + vendor + ')';
+    }
     var deltaBadge = '';
     if (delta === 'joined') deltaBadge = ' &bull; <span style="color:#4ade80">[Recently Joined]</span>';
     else if (delta === 'dropped') deltaBadge = ' &bull; <span style="color:#f87171">[Recently Dropped]</span>';
     else if (delta === 'changed') deltaBadge = ' &bull; <span style="color:#fbbf24">[Status Shift]</span>';
-    hud.innerHTML = '<strong style="color:#ffffff">' + ip + '</strong> &mdash; Status: <span style="color:#7dbeff">' + status + '</span> (' + rtt + ')' + deltaBadge;
+    hud.innerHTML = '<strong>' + ip + '</strong>' + roleBadge + ' &bull; ' + status + ' &bull; ' + rtt + hwInfo + deltaBadge;
   }
   function resetHud() {
     var hud = document.getElementById('hud');
@@ -613,6 +739,8 @@ const htmlTemplate = `<!DOCTYPE html>
         match = (st && st.indexOf('Fast') !== -1);
       } else if (type === 'slow') {
         match = (st && st.indexOf('Slow') !== -1);
+      } else if (type === 'silent') {
+        match = (st && st.indexOf('Silent') !== -1);
       } else if (type === 'offline') {
         match = (st === 'Offline');
       } else if (type === 'deltas') {
@@ -818,14 +946,18 @@ const minimalHtmlTemplate = `<!DOCTYPE html>
     outline: 1.5px solid #faad14;
     box-shadow: 0 0 6px rgba(250, 173, 20, 0.6);
   }
+  .cell-silent {
+    outline: 1.5px dashed #f59e0b;
+    box-shadow: 0 0 6px rgba(245, 158, 11, 0.7);
+  }
 </style>
 </head>
 <body>
   <div class="grid-canvas">
     <div class="grid-table">
       {{- range .Cells }}
-      <div class="cell{{ if .Delta }} cell-{{ .Delta }}{{ end }}{{ if .IsEmpty }} cell-empty{{ end }}" style="background-color: {{ .Color }};"
-           data-ip="{{ .IP }}" data-status="{{ .Status }}" data-rtt="{{ .RTT }}" data-delta="{{ .Delta }}"
+      <div class="cell{{ if .Delta }} cell-{{ .Delta }}{{ end }}{{ if .IsMe }} cell-me{{ end }}{{ if .IsSilent }} cell-silent{{ end }}{{ if .IsEmpty }} cell-empty{{ end }}" style="background-color: {{ .Color }};"
+           data-ip="{{ .IP }}" data-status="{{ .Status }}" data-rtt="{{ .RTT }}" data-delta="{{ .Delta }}" data-role="{{ .Role }}"
            title="{{ .Tooltip }}"></div>
       {{- end }}
     </div>
@@ -905,7 +1037,7 @@ func buildHTMLData(cfg GridConfig, results []scanner.HostResult, sweepDuration t
 	totalSlots := cfg.Rows * cfg.Cols
 	cells := make([]HTMLCell, totalSlots)
 
-	var onlineCount, fastCount, slowCount, offlineCount int
+	var onlineCount, fastCount, slowCount, silentCount, offlineCount int
 
 	for i := 0; i < totalSlots; i++ {
 		if i >= len(results) {
@@ -929,6 +1061,7 @@ func buildHTMLData(cfg GridConfig, results []scanner.HostResult, sweepDuration t
 			cellCol  string
 			rttStr   = "no reply"
 			isUp     = false
+			isSilent = false
 			deltaTag = ""
 		)
 
@@ -965,27 +1098,51 @@ func buildHTMLData(cfg GridConfig, results []scanner.HostResult, sweepDuration t
 			slowCount++
 			onlineCount++
 
+		case scanner.StatusSilent:
+			status = "Silent (ICMP Blocked)"
+			cellCol = "#f59e0b"
+			rttStr = "- (arp)"
+			isUp = true
+			isSilent = true
+			silentCount++
+			onlineCount++
+
 		default:
 			status = "Offline"
 			cellCol = HexString(cfg.ColorOffline)
 			offlineCount++
 		}
 
+		roleStr := res.RoleBadge()
 		tooltip := fmt.Sprintf("%s - %s (%s)", ipStr, status, rttStr)
+		if res.MAC != "" {
+			tooltip += fmt.Sprintf(" • MAC: %s", res.MAC)
+		}
+		if res.Vendor != "" {
+			tooltip += fmt.Sprintf(" [%s]", res.Vendor)
+		}
+		if roleStr != "" {
+			tooltip += fmt.Sprintf(" %s", roleStr)
+		}
 		if deltaTag != "" {
 			tooltip += fmt.Sprintf(" [%s]", deltaTag)
 		}
 
 		cells[i] = HTMLCell{
-			Index:   i,
-			IP:      ipStr,
-			Status:  status,
-			Color:   cellCol,
-			RTT:     rttStr,
-			IsUp:    isUp,
-			Tooltip: tooltip,
-			Delta:   deltaTag,
-			IsEmpty: false,
+			Index:    i,
+			IP:       ipStr,
+			Status:   status,
+			Color:    cellCol,
+			RTT:      rttStr,
+			MAC:      res.MAC,
+			Vendor:   res.Vendor,
+			IsUp:     isUp,
+			IsSilent: isSilent,
+			Tooltip:  tooltip,
+			Delta:    deltaTag,
+			Role:     roleStr,
+			IsMe:     res.HasRole(scanner.RoleLocalHost),
+			IsEmpty:  false,
 		}
 	}
 
@@ -1011,6 +1168,7 @@ func buildHTMLData(cfg GridConfig, results []scanner.HostResult, sweepDuration t
 		Online:          onlineCount,
 		Fast:            fastCount,
 		Slow:            slowCount,
+		Silent:          silentCount,
 		Offline:         offlineCount,
 		Duration:        scanner.FormatDurationMS(sweepDuration),
 		RefreshInterval: refreshInterval,
@@ -1020,6 +1178,8 @@ func buildHTMLData(cfg GridConfig, results []scanner.HostResult, sweepDuration t
 		Deltas:          deltas,
 		Cells:           cells,
 		ScanMode:        cfg.ScanMode,
+		LinkHealth:      cfg.LinkHealth,
+		InterfaceName:   cfg.InterfaceName,
 	}
 }
 
@@ -1076,5 +1236,5 @@ func SaveHTML(content []byte, path string) error {
 			return err
 		}
 	}
-	return os.WriteFile(path, content, 0600)
+	return paths.SafeWrite(path, content, true)
 }

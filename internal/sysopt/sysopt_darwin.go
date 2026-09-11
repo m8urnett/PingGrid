@@ -75,6 +75,7 @@ func Apply(ctx context.Context, dryRun bool) ([]StepResult, error) {
 
 		if dryRun {
 			sr.Skipped = true
+			sr.DryRun = true
 			sr.Message = "Dry run (no changes applied)"
 			results = append(results, sr)
 			continue

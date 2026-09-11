@@ -122,3 +122,50 @@ func TestRenderListEmpty(t *testing.T) {
 		t.Errorf("Expected empty response message, got: %s", out)
 	}
 }
+
+func TestRenderListRoles(t *testing.T) {
+	results := []scanner.HostResult{
+		{
+			IP:       net.ParseIP("192.168.1.1"),
+			Hostname: "gateway.local",
+			Status:   scanner.StatusHighlight,
+			Roles:    []scanner.HostRole{scanner.RoleGateway, scanner.RoleDNS},
+			RTT:      time.Millisecond,
+		},
+		{
+			IP:       net.ParseIP("192.168.1.50"),
+			Hostname: "laptop.local",
+			Status:   scanner.StatusOnline,
+			Roles:    []scanner.HostRole{scanner.RoleLocalHost},
+			RTT:      500 * time.Microsecond,
+		},
+		{
+			IP:       net.ParseIP("192.168.1.75"),
+			Hostname: "printer.local",
+			Status:   scanner.StatusOnline,
+			RTT:      15 * time.Millisecond,
+		},
+	}
+
+	plainOut := RenderList(results, true, false, 3, nil)
+	if !strings.Contains(plainOut, "ROLE") {
+		t.Errorf("Expected list output to have ROLE header, got:\n%s", plainOut)
+	}
+	if !strings.Contains(plainOut, "[Gateway, DNS]") {
+		t.Errorf("Expected list output to have [Gateway, DNS] role badge, got:\n%s", plainOut)
+	}
+	if !strings.Contains(plainOut, "[Me]") {
+		t.Errorf("Expected list output to have [Me] role badge, got:\n%s", plainOut)
+	}
+	// Verify + prefix for important hosts
+	if !strings.Contains(plainOut, "+ gateway.local") {
+		t.Errorf("Expected + prefix for gateway.local, got:\n%s", plainOut)
+	}
+	if !strings.Contains(plainOut, "+ laptop.local") {
+		t.Errorf("Expected + prefix for laptop.local, got:\n%s", plainOut)
+	}
+	// Verify normal host without roles starts with 2 spaces
+	if !strings.Contains(plainOut, "  printer.local") {
+		t.Errorf("Expected 2-space prefix for normal host printer.local, got:\n%s", plainOut)
+	}
+}

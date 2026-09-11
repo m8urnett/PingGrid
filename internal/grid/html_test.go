@@ -175,3 +175,39 @@ func TestRenderHTMLEmptyCells(t *testing.T) {
 		t.Errorf("expected HTML stats bar to show All: 2 (scanned hosts)")
 	}
 }
+
+func TestRenderHTMLLinkHealth(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.InterfaceName = "Ethernet 2"
+	cfg.LinkHealth = &scanner.LinkHealth{
+		AdapterModel: "Microsoft Hyper-V Network Adapter #2",
+		LinkSpeedStr: "1 Gbps",
+		Duplex:       "Full Duplex",
+		MTU:          1500,
+		DHCPEnabled:  true,
+		DHCPStatus:   "Active",
+	}
+
+	results := []scanner.HostResult{
+		{IP: net.IPv4(10, 8, 0, 1), Status: scanner.StatusOnline},
+	}
+
+	content, err := RenderHTML(cfg, results, 50*time.Millisecond, 0, nil)
+	if err != nil {
+		t.Fatalf("RenderHTML failed: %v", err)
+	}
+
+	htmlStr := string(content)
+	if !strings.Contains(htmlStr, "hud-card") {
+		t.Errorf("expected hud-card in HTML")
+	}
+	if !strings.Contains(htmlStr, "Microsoft Hyper-V Network Adapter #2") {
+		t.Errorf("expected adapter model in HTML HUD")
+	}
+	if !strings.Contains(htmlStr, "1 Gbps Full Duplex") {
+		t.Errorf("expected link speed in HTML HUD")
+	}
+	if !strings.Contains(htmlStr, "MTU 1500") {
+		t.Errorf("expected MTU in HTML HUD")
+	}
+}

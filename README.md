@@ -11,11 +11,21 @@ Runs natively on **Windows**, **Linux**, and **macOS**. Code is almost completel
 ## Quick Start
 
 ```sh
+# Sweep active local subnet (zero-config, no arguments needed!)
+pg.exe
+
 # Sweep target subnet (positional target syntax)
 pg.exe 192.168.1.0/24
 
+# Sweep specific network interface (by name or index)
+pg.exe -i "Wi-Fi"
+pg.exe -i 1
+
+# List all local network interfaces and exit
+pg.exe -I
+
 # Sweep with 3 ping attempts per host for maximum accuracy
-pg.exe 192.168.1.0/24 -p 3
+pg.exe -p 3
 
 # Continuous live monitoring: refresh sweep every 5 seconds (auto-refreshes terminal & HTML)
 pg.exe 192.168.1.0/24 -R 5s
@@ -47,13 +57,14 @@ pg.exe optimize-os --dry-run
 # Apply host OS network stack optimizations (run as Administrator / sudo):
 pg.exe optimize-os
 
-# Display help and CLI usage (pg.exe without parameters also displays help)
+# Display help and CLI usage:
 pg.exe /?
+pg.exe --help
 ```
 
 ## Grid Layout & Color Representation
 
-PingGrid dynamically adapts its grid geometry to match the scanned IP range. For a standard `/24` subnet (256 hosts), it defaults to **8 rows &times; 32 columns** (**295 &times; 77 px**). For custom or smaller ranges (e.g. 50 hosts), rows and columns auto-size dynamically (e.g. **5 rows &times; 10 columns**) while maintaining constant 8&times;8 px square cell proportions across PNG, HTML, and terminal outputs.
+PingGrid dynamically adapts its grid geometry to match the scanned IP range. For a standard `/24` subnet (256 hosts), it defaults to **8 rows &times; 32 columns** (**295 &times; 77 px**). For custom or smaller ranges (e.g. 50 hosts), rows and columns auto-size dynamically (e.g. **5 rows &times; 10 columns**) while maintaining constant 8&times;8 px square cell proportions across PNG, HTML, and terminal outputs. Resource limits are 1–10 pings, 1–1,024 workers, 1 ms–1 minute timeout, 100 ms–24 hours refresh intervals, and canvases no larger than 16,384 pixels per dimension or 67,108,864 pixels total.
 
 ### Color Palette & Meanings
 
@@ -67,7 +78,8 @@ The default scheme (`--scheme dark`) maps these colors to:
 | **Offline / Unresponsive** | `#404e41` | `·` | Scanned IP did not reply within timeout. |
 | **Active / Online** | `#4d86a2` | `o` | Host responded normally (< `--slow-threshold`). |
 | **Slow / Degraded** | `#ab7550` | `*` | High latency node (&ge; `--slow-threshold`, default 100ms). |
-| **Highlight** | `#e4f9d4` | `^` | Gateway or key infrastructure address. |
+| **Gateway / Fast** | `#e4f9d4` | `^` | Gateway or key infrastructure address. |
+| **Local Host ("Me")** | Bold Cyan | `@` | The workstation's own IP on the scanned interface. |
 
 ### Built-in Schemes
 
@@ -81,7 +93,7 @@ Use `--scheme` / `-s` (or `/scheme`, `-scheme`, `/s`) to switch between preset c
 | **`moss`** | ![moss](docs/moss.png) | `#2c2c2c` Charcoal | `#b1b9a0` Sage | `#465a47` Forest Moss | `#ab7550` Terracotta | `#e4f9d4` Mint |
 | **`linen`** | ![linen](docs/linen.png) | `#f4eeeb` Linen | `#897e79` Taupe | `#f4eeeb` Linen | `#ab7550` Terracotta | `#4d86a2` Teal |
 
-All dimensions, grid arrangements, and individual colors can also be overridden via CLI flags. All options and switches accept `-`, `--`, and `/` interchangeably (e.g. `/html`, `-html`, `--html`, `/p 3`, `-p 3`, `/r 5`, `/s moss`). Directed subnet broadcast addresses (e.g. `x.x.x.255`) and `255.255.255.255` are automatically protected from pinging. All latency measurements are reported in milliseconds (`ms`). Hex color flags accept values with or without the leading `#` (e.g. `--color-online 4d86a2` or `--color-online "#4d86a2"`).
+All dimensions, grid arrangements, and individual colors can also be overridden via CLI flags. All options and switches accept `-`, `--`, and `/` interchangeably (e.g. `/html`, `-html`, `--html`, `/p 3`, `-p 3`, `/r 5`, `/s moss`). PingGrid protects `255.255.255.255` and directed broadcasts calculated from supplied subnet masks; an address ending in `.255` is still scanned when it is a valid host for that mask. All latency measurements are reported in milliseconds (`ms`). Hex color flags accept values with or without the leading `#` (e.g. `--color-online 4d86a2` or `--color-online "#4d86a2"`). `NO_COLOR` and `--no-color` disable ANSI styling.
 
 ## Command-Line Options
 
@@ -94,16 +106,23 @@ Output Options:
       --html [file]              Generate standalone interactive HTML dashboard (default: grid.html)
       --iframe [file]            Generate embeddable minimal HTML for iframes (default: grid-embed.html)
       --png [file]               Generate PNG activity grid image (default: grid.png)
-      --json [file]              Output machine-readable JSON summary (optionally write to file)
+      --json [file]              Output versioned machine-readable JSON (optionally write to file)
       --summary [file]           Output single-line text summary (optionally write to file)
       --ascii [file]             Output console ASCII text grid (optionally write to file)
 
 Scan Options:
-  -p, --pings <count>            Number of ping attempts per host (default 3)
-  -R, --refresh <interval>       Continuous sweep refresh interval (e.g. 5s, 10s; 0 runs once)
-      --concurrency <workers>    Number of concurrent ping workers (default 256)
-      --timeout <duration>       Ping timeout duration per host (default 150ms RFC1918/LAN, 400ms WAN)
+  -i, --interface <name|index>   Target network interface by name or index (e.g. 'Wi-Fi', 'eth0', 1)
+  -I, --interfaces               List detected local network interfaces and exit
+  -A, --all-interfaces           Sweep all active local network interfaces simultaneously
+  -p, --pings <count>            Ping attempts per host, 1–10 (default 3)
+  -R, --refresh <interval>       Refresh interval, 100ms–24h (0 runs once)
+      --concurrency <workers>    Concurrent worker budget, 1–1024 (default 256)
+      --timeout <duration>       Ping timeout, 1ms–1m (default 150ms LAN, 400ms WAN)
       --slow-threshold <duration> Latency threshold for slow/degraded color (default 100ms)
+      --hud                      Display Interface & Link Health HUD banner (default true)
+      --no-hud                   Disable Interface & Link Health HUD banner
+      --arp                      Pre-warm discovery cache from OS neighbor table and detect silent hosts (default true)
+      --no-arp                   Disable OS ARP/neighbor cache integration
 
 Grid Layout Options:
   -r, --rows <count>             Number of grid rows (auto-sized to fit IP range if omitted)
@@ -128,15 +147,17 @@ Standard Options:
   -h, --help                  Display help and exit
       --examples              Display detailed usage examples and target formats
       --plain                 Plain monochrome ASCII mode without ANSI colors
+      --no-color              Disable ANSI colors (also honored through NO_COLOR)
 
 System Optimization:
       --optimize-os           Tune host OS network parameters for fast sweeping (requires admin/root)
       --dry-run               Inspect proposed OS optimizations without applying changes
 
 Help & Usage:
-  Running pg without arguments displays full usage.
+  Running pg without arguments automatically sweeps your active local subnet.
+  Run 'pg --help' or 'pg /?' to display full usage.
   Run 'pg --examples' to see detailed examples and all supported IP range formats.
-  Standard Windows and Unix help switches are supported: /?, -?, /h, -h, --help, /help, help.
+  Standard Windows and Unix help switches are supported: /?, -?, /h, -h, --help, /help.
 ```
 
 ## Shell Completion
@@ -211,6 +232,21 @@ pg.exe 10.8.0.1/24 --plain
 pg.exe -R 3s
 ```
 
+### Multi-Adapter Simultaneous Sweeping
+```sh
+# Simultaneously sweep all active network adapters (Physical LAN, Wi-Fi, Docker, WSL, VPN):
+pg.exe -A
+
+# Output sorted host lists for all interfaces:
+pg.exe -A -l
+
+# Generate interactive multi-adapter HTML dashboard with tabbed & stacked views:
+pg.exe -A --html=multi-grid.html
+
+# Output unified multi-interface JSON metrics:
+pg.exe -A --json=multi-scan.json
+```
+
 ### Sorted Host List (List Mode)
 ```sh
 # Sweep target subnet and print sorted list of host names and ping times to console:
@@ -269,6 +305,11 @@ pg.exe 10.0.0.0/24 -r 16 -c 16 -W 512 -H 512 --color-online "#4CAF50" --png lan-
 ```sh
 pg.exe 10.10.1.0/24 --verbose --timeout 1s -p 2
 ```
+In verbose mode (`-v`, `--verbose`), PingGrid outputs:
+- **Discovered Topology Hosts**: Prints the local host IP (`[Me]`), default gateway (`[Gateway]`), local DNS resolvers (`[DNS]`), and DHCP server (`[DHCP]`) prefixed with `+`.
+- **Important Host Highlighting (`+`)**: Pre-fixes live responses from important role hosts with `+` and their role badge.
+- **Offline Infrastructure Warnings**: Explicitly logs if any key topology host does not respond (`+ Host <IP> <Role> did not respond (offline)`).
+- **Tabular List Marking (`-l -v`)**: Prefixes rows for important topology hosts with `+ ` in sorted host lists.
 
 ## Output Formats: List, HTML, Embed, PNG, Text, & JSON
 
@@ -306,8 +347,11 @@ PingGrid provides dedicated options to select and configure the desired output:
    - Generates a standalone PNG image representing the network state with pixel-exact square cells and outer frame.
    - Saves to `grid.png` by default, or to any custom filename passed directly to `--png`.
 
-5. **Structured JSON Summary (`--json [file]`)**:
-   - Emits structured JSON summary metrics to stdout or directly to a file.
+5. **Structured JSON (`--json [file]`)**:
+   - Emits schema-versioned summary and host telemetry to stdout or directly to a file.
+   - Durations use numeric milliseconds (`duration_ms`, `rtt_ms`); host statuses are lower-case strings.
+   - The stable v1 contract is defined by [`docs/json-schema-v1.json`](docs/json-schema-v1.json).
+   - Put the target before a space-separated output filename. When the output flag comes first, use `--json=FILE`, `--html=FILE`, and so on; for example, `pg --json=scan.json printer.local`.
 
 6. **Console ASCII Matrix (`--ascii [file]`)**:
    - Visual ASCII grid output rendered directly to the terminal or saved to a text file. Supports rich ANSI color output by default or plain monochrome text via `--plain`.
@@ -319,15 +363,41 @@ PingGrid provides dedicated options to select and configure the desired output:
   - **Unprivileged Datagram ICMP**: Employs datagram sockets (`udp4`), supported natively on macOS and Linux distros with `ping_group_range`.
   - **Privileged Raw Socket**: Uses raw ICMP sockets (`ip4:icmp`) when running as root or with `CAP_NET_RAW`.
   - **Subprocess Fallback**: Automatically invokes the system `ping` binary if raw/datagram sockets are restricted.
-  - **TCP Discovery Probing**: Probes key ports (53, 80, 445, 22) if ICMP is blocked by firewall policies.
-- **Cross-Platform Auto-Detection**: Detects primary active IPv4 network interface and computes the enclosing `/24` subnet and gateway automatically.
+  - **TCP Discovery Probing**: Probes key ports (53, 80, 445, 22) within the same timeout budget when ICMP mechanisms are unavailable.
+- **Cross-Platform Auto-Detection**: Detects primary active IPv4 network interface, true configured subnet mask (e.g. `/22`, `/23`, `/25`, `/28`), and kernel routing table default gateway automatically. Sweeps zero-config out of the box when invoked without arguments.
+
+## OS & Network Interface Optimizations (`pg optimize-os`)
+
+PingGrid includes built-in kernel and physical network interface tuning specifically calibrated for high-throughput, low-jitter network sweeps:
+
+```sh
+# Preview proposed optimizations without modifying system settings
+pg optimize-os --dry-run
+
+# Apply optimizations (requires Administrator on Windows or root on Linux/macOS)
+pg optimize-os
+```
+
+- **Energy Efficient Ethernet (EEE / 802.3az)**: Inspects physical NIC hardware and disables transceiver Low Power Idle (LPI) sleep states (`Set-NetAdapterAdvancedProperty` / `ethtool --set-eee`), eliminating wake-up latency jitter and first-packet drop during sweeps.
+- **Receive Side Scaling (RSS)**: Verifies global TCP stack multi-core processing (`netsh int tcp show global`) and adapter-level RSS queues across all active NICs to prevent single CPU core bottlenecking during high-concurrency scans.
+- **Interrupt Moderation**: Evaluates hardware interrupt coalescing rates and tunes them to adaptive moderation for microsecond latency responses without packet drop.
+- **Neighbor Cache & Timers**: Expands IPv4 ARP/neighbor cache capacity to 4,096 entries to prevent table thrashing during large sweeps, extends cache retention to 5 minutes, and lowers dead-host retransmission delay to 200ms.
+- **Firewall ICMP Permission**: Creates an application-scoped outbound Windows Firewall rule so PingGrid can send ICMP echo requests; it does not bypass packet inspection.
 
 ## Build & Development
 
+### Source Layout
+
+- `main.go` is the versioned executable boundary and delegates execution to `internal/app`.
+- `internal/app` owns CLI construction, validation, target preparation, single- and multi-interface orchestration, output selection, interface inventory, and optimizer coordination.
+- `internal/report` owns the stable JSON-facing data model, while `internal/scanner`, `internal/grid`, and `internal/sysopt` retain their existing domain responsibilities.
+
 ### Prerequisites
 
-1. **Go Toolchain**: Requires Go 1.23 or later.
-2. **Self-Contained**: PingGrid is completely self-contained with zero private module dependencies. You can clone the repository to any directory and build immediately without requiring sibling folders or external tokens.
+1. **Go Toolchain**: Requires Go 1.26.4 or later.
+2. **Shared Toolkit**: Keep the `toolkit` checkout in the sibling `../toolkit` directory. `go.mod` consumes its common standards implementation packages directly.
+3. **Windows Resources**: Windows builds require `windres`; `build.ps1` and `make build-windows` regenerate the embedded version-resource object before compilation.
+4. **Verification Tools**: The full `-Verify` pipeline requires `golangci-lint`, `govulncheck`, and the PowerShell `PSScriptAnalyzer` module.
 
 ### Building on Windows (PowerShell)
 
@@ -371,7 +441,7 @@ make verify-deps
 # Scan dependencies for known CVE vulnerabilities via Go vulnerability DB (SC-0004)
 make vuln
 
-# Full CI / supply-chain audit pipeline (verify-deps + fmt + vet + lint + test + vuln)
+# Full CI / supply-chain audit pipeline (verify-deps + fmt + vet + lint + test + race + vuln)
 make ci
 ```
 
@@ -387,11 +457,11 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o pg-linux-amd64 .
 
 ### Build & Compilation Notes
 
-- **Version & Build Metadata Injection**: Builds inject the Git commit hash and UTC build timestamp into the executable at link time using `-ldflags`:
+- **Version & Build Metadata**: The application version is compiled from `main.go`; build scripts inject the Git commit hash and deterministic commit timestamp using `-ldflags`:
   ```sh
-  go build -ldflags "-X github.com/m8urnett/PingGrid/internal/version.GitCommit=$(git rev-parse --short HEAD) -X github.com/m8urnett/PingGrid/internal/version.BuildDate=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" -o pg.exe .
+  go build -ldflags "-X github.com/m8urnett/PingGrid/internal/version.GitCommit=$(git rev-parse --short HEAD) -X github.com/m8urnett/PingGrid/internal/version.BuildDate=$(git show -s --format=%cI HEAD)" -o pg.exe .
   ```
-  The authoritative version and build number are defined in [`internal/version/version.go`](file:///c:/Users/mark/Proton%20Drive/m8urn/My%20files/(Dev)/PingGrid/internal/version/version.go).
+  The authoritative application version is the `const version` declaration in [`main.go`](main.go). It uses the required `1.xx.NNN` representation: significant changes increment `xx` and reset `NNN`, and subsequent application builds increment `NNN`.
 - **Pure Go Static Binaries (`CGO_ENABLED=0`)**: Linux and macOS cross-compilation builds set `CGO_ENABLED=0` to create completely static, portable executables with zero external C library or glibc dependencies.
 - **Linux Network Capabilities**: Windows uses `iphlpapi.dll` without requiring elevation. On Linux, if unprivileged ICMP datagram sockets (`udp4`) are disabled by default on your distribution, grant socket capabilities or enable the sysctl ping group range:
   ```sh
@@ -406,9 +476,10 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o pg-linux-amd64 .
   go mod vendor
   go build -mod=vendor -o pg.exe .
   ```
-- **Automated Tests**: Run the full unit test suite covering color schemes, HTML templates, state deltas, CIDR generation, and CLI argument conflict validation:
+- **Automated Tests**: Run the unit suite and race detector, covering color schemes, HTML templates, state deltas, CIDR generation, interface parsing, and CLI validation:
   ```sh
   go test -v ./...
+  go test -race ./...
   ```
 
 ## Host OS Network Stack Optimization
@@ -422,14 +493,16 @@ PingGrid includes a built-in cross-platform optimizer (`pg optimize-os` or `pg -
 > ```sh
 > pg.exe optimize-os --dry-run
 > ```
+>
+> Optimizations are applied independently and are not automatically rolled back if a later step fails. Record current values from the dry-run output before applying them.
 
 ### Platform Tunings Applied
 
-* **Windows** (via `netsh` and Windows Filtering Platform):
+* **Windows** (via `netsh` and PowerShell):
   * **Global Neighbor Cache Limit**: Expands from 256 to 4096 entries per interface (`netsh interface ipv4 set global neighborcachelimit=4096`) to prevent cache thrashing during large subnet sweeps.
   * **Neighbor Reachable Duration**: Extends base reachable duration to 300,000 ms (5 minutes) so active hosts remain cached across repeated sweep cycles.
   * **Retransmission Interval**: Lowers neighbor retransmission backoff from 1000 ms to 200 ms.
-  * **Windows Firewall Fastpath**: Registers an outbound firewall rule for `pg.exe` to bypass ICMP state inspection queues in WFP.
+  * **Windows Firewall Permission**: Registers an application-scoped outbound ICMP rule for `pg.exe`; this permits traffic but does not bypass packet inspection.
 * **Linux** (via `sysctl`):
   * `net.ipv4.neigh.default.mcast_solicit = 1`: Drops dead-host multicast ARP probes from 3 attempts to 1.
   * `net.ipv4.neigh.default.retrans_time_ms = 100`: Lowers ARP retransmission wait time from 1000 ms to 100 ms.
@@ -443,5 +516,4 @@ PingGrid includes a built-in cross-platform optimizer (`pg optimize-os` or `pg -
 
 ## License
 
-This software is dedicated to the public domain under [The Unlicense](file:///c:/Users/mark/Proton%20Drive/m8urn/My%20files/(Dev)/PingGrid/LICENSE). You are free to copy, modify, publish, use, compile, sell, or distribute this software for any purpose.
-
+This software is dedicated to the public domain under [The Unlicense](LICENSE). You are free to copy, modify, publish, use, compile, sell, or distribute this software for any purpose.

@@ -206,8 +206,11 @@ func TestBroadcastDetection(t *testing.T) {
 	if !IsIPv4Broadcast(net.ParseIP("255.255.255.255"), nil) {
 		t.Error("expected 255.255.255.255 to be broadcast")
 	}
-	if !IsIPv4Broadcast(net.ParseIP("192.168.1.255"), nil) {
-		t.Error("expected 192.168.1.255 to be broadcast")
+	if !IsIPv4Broadcast(net.ParseIP("192.168.1.255"), b24) {
+		t.Error("expected 192.168.1.255 to be broadcast for its /24")
+	}
+	if IsIPv4Broadcast(net.ParseIP("192.168.0.255"), ExtractBroadcastIPs("192.168.0.0/23")) {
+		t.Error("expected 192.168.0.255 to remain a valid host in a /23")
 	}
 	if !IsIPv4Broadcast(net.ParseIP("10.0.0.15"), b28) {
 		t.Error("expected 10.0.0.15 to be broadcast with b28 list")
@@ -230,6 +233,7 @@ func TestSweepSkipsBroadcast(t *testing.T) {
 	cfg.Concurrency = 3
 	cfg.Pings = 1
 	cfg.Timeout = 50 * time.Millisecond
+	cfg.BroadcastIPs = ExtractBroadcastIPs("192.168.1.0/24")
 
 	results := Sweep(ctx, ips, cfg, nil)
 	if len(results) != 3 {
@@ -267,6 +271,101 @@ func TestFormatDurationMS(t *testing.T) {
 		got := FormatDurationMS(tt.d)
 		if got != tt.want {
 			t.Errorf("FormatDurationMS(%v) = %q, want %q", tt.d, got, tt.want)
+		}
+	}
+}
+
+func TestHostRolesAndBadges(t *testing.T) {
+	res := HostResult{
+		IP:    net.ParseIP("192.168.1.1"),
+		Roles: []HostRole{RoleGateway, RoleDNS},
+	}
+
+	if !res.HasRole(RoleGateway) {
+		t.Error("Expected res to have RoleGateway")
+	}
+	if !res.HasRole(RoleDNS) {
+		t.Error("Expected res to have RoleDNS")
+	}
+	if res.HasRole(RoleLocalHost) {
+		t.Error("Expected res not to have RoleLocalHost")
+	}
+
+	badge := res.RoleBadge()
+	if badge != "[Gateway, DNS]" {
+		t.Errorf("RoleBadge() = %q, want %q", badge, "[Gateway, DNS]")
+	}
+
+	emptyRes := HostResult{IP: net.ParseIP("192.168.1.100")}
+	if emptyRes.RoleBadge() != "" {
+		t.Errorf("Expected empty badge, got %q", emptyRes.RoleBadge())
+	}
+}
+
+func TestSweepMultiRoleTagging(t *testing.T) {
+	ctx := context.Background()
+	ips := []net.IP{
+		net.ParseIP("127.0.0.1"),
+		net.ParseIP("127.0.0.2"),
+		net.ParseIP("127.0.0.3"),
+	}
+
+	cfg := DefaultScannerConfig()
+	cfg.Concurrency = 3
+	cfg.Pings = 1
+	cfg.Timeout = 50 * time.Millisecond
+	cfg.LocalHostIP = net.ParseIP("127.0.0.1")
+	cfg.GatewayIP = net.ParseIP("127.0.0.2")
+	cfg.DNSServers = []net.IP{net.ParseIP("127.0.0.2"), net.ParseIP("127.0.0.3")}
+	cfg.DHCPServer = net.ParseIP("127.0.0.2")
+
+	results := Sweep(ctx, ips, cfg, nil)
+	if len(results) != 3 {
+		t.Fatalf("expected 3 results, got %d", len(results))
+	}
+
+	// 127.0.0.1 should have RoleLocalHost
+	if !results[0].HasRole(RoleLocalHost) {
+		t.Errorf("expected 127.0.0.1 to have RoleLocalHost, got %v", results[0].Roles)
+	}
+
+	// 127.0.0.2 should have RoleGateway, RoleDNS, and RoleDHCP
+	if !results[1].HasRole(RoleGateway) {
+		t.Errorf("expected 127.0.0.2 to have RoleGateway, got %v", results[1].Roles)
+	}
+	if !results[1].HasRole(RoleDNS) {
+		t.Errorf("expected 127.0.0.2 to have RoleDNS, got %v", results[1].Roles)
+	}
+	if !results[1].HasRole(RoleDHCP) {
+		t.Errorf("expected 127.0.0.2 to have RoleDHCP, got %v", results[1].Roles)
+	}
+
+	// 127.0.0.3 should have RoleDNS
+	if !results[2].HasRole(RoleDNS) {
+		t.Errorf("expected 127.0.0.3 to have RoleDNS, got %v", results[2].Roles)
+	}
+}
+
+func BenchmarkGenerateIPs24(b *testing.B) {
+	for b.Loop() {
+		ips, _, err := GenerateIPs("192.168.1.0/24", 256)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if len(ips) != 256 {
+			b.Fatalf("GenerateIPs returned %d addresses, want 256", len(ips))
+		}
+	}
+}
+
+func BenchmarkGenerateIPs16Limited(b *testing.B) {
+	for b.Loop() {
+		ips, _, err := GenerateIPs("10.0.0.0/16", 65536)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if len(ips) != 65536 {
+			b.Fatalf("GenerateIPs returned %d addresses, want 65536", len(ips))
 		}
 	}
 }

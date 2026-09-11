@@ -41,9 +41,12 @@ func RenderASCIIDelta(cfg GridConfig, results []scanner.HostResult, deltas []sca
 
 	totalSlots := cfg.Rows * cfg.Cols
 	_ = totalSlots
-	var onlineCount, fastCount, slowCount, offlineCount int
+	var onlineCount, fastCount, slowCount, offlineCount, meCount, silentCount int
 
 	for i := 0; i < len(results); i++ {
+		if results[i].HasRole(scanner.RoleLocalHost) {
+			meCount++
+		}
 		switch results[i].Status {
 		case scanner.StatusHighlight:
 			fastCount++
@@ -51,6 +54,8 @@ func RenderASCIIDelta(cfg GridConfig, results []scanner.HostResult, deltas []sca
 			onlineCount++
 		case scanner.StatusSlow:
 			slowCount++
+		case scanner.StatusSilent:
+			silentCount++
 		default:
 			offlineCount++
 		}
@@ -112,6 +117,8 @@ func RenderASCIIDelta(cfg GridConfig, results []scanner.HostResult, deltas []sca
 
 			d, hasDelta := deltaMap[ipStr]
 
+			isMe := results[idx].HasRole(scanner.RoleLocalHost)
+
 			if plain {
 				if hasDelta {
 					switch d.Kind {
@@ -124,6 +131,8 @@ func RenderASCIIDelta(cfg GridConfig, results []scanner.HostResult, deltas []sca
 					default:
 						sb.WriteString("· ")
 					}
+				} else if isMe {
+					sb.WriteString("@ ")
 				} else {
 					switch st {
 					case scanner.StatusHighlight:
@@ -132,6 +141,8 @@ func RenderASCIIDelta(cfg GridConfig, results []scanner.HostResult, deltas []sca
 						sb.WriteString("o ")
 					case scanner.StatusSlow:
 						sb.WriteString("* ")
+					case scanner.StatusSilent:
+						sb.WriteString("? ")
 					default:
 						sb.WriteString("· ")
 					}
@@ -150,6 +161,10 @@ func RenderASCIIDelta(cfg GridConfig, results []scanner.HostResult, deltas []sca
 						sb.WriteString("■ ")
 						sb.WriteString(ansiReset)
 					}
+				} else if isMe {
+					sb.WriteString("\x1b[96;1m@ \x1b[0m")
+				} else if st == scanner.StatusSilent {
+					sb.WriteString("\x1b[38;5;214;1m? \x1b[0m")
 				} else {
 					var clr color.RGBA
 					switch st {
@@ -180,17 +195,35 @@ func RenderASCIIDelta(cfg GridConfig, results []scanner.HostResult, deltas []sca
 	// Summary Legend
 	totalHosts := len(results)
 	if plain {
-		fmt.Fprintf(&sb, " Legend: [^] Fast/Gateway: %d  [o] Online: %d  [*] Slow: %d  [·] Offline: %d  (Total: %d)\n",
-			fastCount, onlineCount, slowCount, offlineCount, totalHosts)
+		meLegend := ""
+		if meCount > 0 {
+			meLegend = fmt.Sprintf("[@] Me: %d  ", meCount)
+		}
+		silentLegend := ""
+		if silentCount > 0 {
+			silentLegend = fmt.Sprintf("[?] Silent/Firewalled: %d  ", silentCount)
+		}
+		fmt.Fprintf(&sb, " Legend: %s[^] Fast/Gateway: %d  [o] Online: %d  [*] Slow: %d  %s[·] Offline: %d  (Total: %d)\n",
+			meLegend, fastCount, onlineCount, slowCount, silentLegend, offlineCount, totalHosts)
 		if len(deltas) > 0 {
 			fmt.Fprintf(&sb, " Deltas: [+] Joined: %d  [-] Dropped: %d  [~] Changed: %d\n",
 				joinedCount, droppedCount, changedCount)
 		}
 	} else {
-		fmt.Fprintf(&sb, " Legend: %s■%s Fast/Gateway: %d  %s■%s Online: %d  %s■%s Slow: %d  %s■%s Offline: %d  (Total: %d)\n",
+		meLegend := ""
+		if meCount > 0 {
+			meLegend = fmt.Sprintf("\x1b[96;1m@\x1b[0m Me: %d  ", meCount)
+		}
+		silentLegend := ""
+		if silentCount > 0 {
+			silentLegend = fmt.Sprintf("\x1b[38;5;214;1m?\x1b[0m Silent/Firewalled: %d  ", silentCount)
+		}
+		fmt.Fprintf(&sb, " Legend: %s%s■%s Fast/Gateway: %d  %s■%s Online: %d  %s■%s Slow: %d  %s%s■%s Offline: %d  (Total: %d)\n",
+			meLegend,
 			ansiRGB(cfg.ColorHighlight), ansiReset, fastCount,
 			ansiRGB(cfg.ColorOnline), ansiReset, onlineCount,
 			ansiRGB(cfg.ColorSlow), ansiReset, slowCount,
+			silentLegend,
 			ansiRGB(cfg.ColorOffline), ansiReset, offlineCount,
 			totalHosts)
 		if len(deltas) > 0 {

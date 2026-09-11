@@ -13,6 +13,8 @@ type Optimization struct {
 	CurrentValue string
 	TargetValue  string
 	Command      string
+	AdapterName  string
+	PropertyName string
 }
 
 // StepResult represents the outcome of attempting to apply a single optimization.
@@ -20,6 +22,7 @@ type StepResult struct {
 	Opt     Optimization
 	Applied bool
 	Skipped bool
+	DryRun  bool
 	Message string
 	Err     error
 }
@@ -52,6 +55,12 @@ func ElevationInstructions() string {
 
 // FormatBadge returns a color-safe or plain-text badge for the result.
 func (sr StepResult) FormatBadge(isPlain bool) string {
+	if sr.DryRun {
+		if isPlain {
+			return "[DRY] "
+		}
+		return "\033[36m[DRY] \033[0m"
+	}
 	if sr.Skipped {
 		if isPlain {
 			return "[SKIP]"
@@ -75,6 +84,9 @@ func (sr StepResult) FormatBadge(isPlain bool) string {
 
 // SummaryString returns a human-readable description of the step outcome.
 func (sr StepResult) SummaryString() string {
+	if sr.DryRun {
+		return fmt.Sprintf("%s: %s", sr.Opt.Name, sr.Message)
+	}
 	if sr.Skipped {
 		if sr.Message != "" {
 			return fmt.Sprintf("%s: %s (Already optimal)", sr.Opt.Name, sr.Message)

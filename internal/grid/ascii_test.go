@@ -230,3 +230,57 @@ func TestRenderASCIIAutoLayout50(t *testing.T) {
 		t.Errorf("expected row 4 ending with '^', got: %s", rowLines[4])
 	}
 }
+
+func TestRenderASCIILocalHostMe(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Rows = 1
+	cfg.Cols = 3
+
+	results := []scanner.HostResult{
+		{IP: net.IPv4(10, 8, 0, 1), Status: scanner.StatusHighlight, Roles: []scanner.HostRole{scanner.RoleGateway}},
+		{IP: net.IPv4(10, 8, 0, 2), Status: scanner.StatusOnline, Roles: []scanner.HostRole{scanner.RoleLocalHost}},
+		{IP: net.IPv4(10, 8, 0, 3), Status: scanner.StatusOnline},
+	}
+
+	plain := RenderASCII(cfg, results, true)
+	if !strings.Contains(plain, "^ @ o") {
+		t.Errorf("expected plain row with '^ @ o', got:\n%s", plain)
+	}
+	if !strings.Contains(plain, "Legend: [@] Me: 1  [^] Fast/Gateway: 1") {
+		t.Errorf("expected legend with '[@] Me: 1', got:\n%s", plain)
+	}
+
+	colorOut := RenderASCII(cfg, results, false)
+	if !strings.Contains(colorOut, "\x1b[96;1m@ \x1b[0m") {
+		t.Errorf("expected ANSI color output to contain cyan '@', got:\n%s", colorOut)
+	}
+}
+
+func TestRenderASCIISilent(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Rows = 1
+	cfg.Cols = 4
+
+	results := []scanner.HostResult{
+		{IP: net.IPv4(10, 8, 0, 1), Status: scanner.StatusHighlight},
+		{IP: net.IPv4(10, 8, 0, 2), Status: scanner.StatusOnline},
+		{IP: net.IPv4(10, 8, 0, 3), Status: scanner.StatusSilent, MAC: "50:9a:4c:75:3e:2f", Vendor: "MikroTik"},
+		{IP: net.IPv4(10, 8, 0, 4), Status: scanner.StatusOffline},
+	}
+
+	plain := RenderASCII(cfg, results, true)
+	if !strings.Contains(plain, "? ") {
+		t.Errorf("expected plain row with '?', got:\n%s", plain)
+	}
+	if !strings.Contains(plain, "[?] Silent/Firewalled: 1") {
+		t.Errorf("expected legend with '[?] Silent/Firewalled: 1', got:\n%s", plain)
+	}
+
+	colorOut := RenderASCII(cfg, results, false)
+	if !strings.Contains(colorOut, "\x1b[38;5;214;1m? \x1b[0m") {
+		t.Errorf("expected ANSI color output to contain amber '?', got:\n%s", colorOut)
+	}
+	if !strings.Contains(colorOut, "Silent/Firewalled: 1") {
+		t.Errorf("expected ANSI legend to contain 'Silent/Firewalled: 1', got:\n%s", colorOut)
+	}
+}

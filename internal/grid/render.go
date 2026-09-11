@@ -1,6 +1,7 @@
 package grid
 
 import (
+	"bytes"
 	"fmt"
 	"image"
 	"image/color"
@@ -12,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/m8urnett/PingGrid/internal/scanner"
+	"github.com/m8urnett/toolkit/paths"
 )
 
 // Default grid dimensions and palette matching .notes/grid.png.
@@ -48,6 +50,8 @@ type GridConfig struct {
 	ColorBorder    color.RGBA
 	ColorFrame     color.RGBA
 	ScanMode       string
+	LinkHealth     *scanner.LinkHealth
+	InterfaceName  string
 }
 
 // DefaultConfig returns the standard GridConfig using the default dark scheme.
@@ -356,18 +360,57 @@ func SavePNG(img *image.RGBA, path string) error {
 			return err
 		}
 	}
-	f, err := os.Create(path)
-	if err != nil {
+	var encoded bytes.Buffer
+	if err := png.Encode(&encoded, img); err != nil {
 		return err
 	}
-	defer func() {
-		_ = f.Close()
-	}()
-
-	return png.Encode(f, img)
+	return paths.SafeWrite(path, encoded.Bytes(), true)
 }
 
 // WritePNG encodes the image into any io.Writer.
 func WritePNG(img *image.RGBA, w io.Writer) error {
 	return png.Encode(w, img)
+}
+
+// RenderMulti renders multiple interface activity grids stacked vertically into a single image.
+func RenderMulti(cfgs []GridConfig, resultsList [][]scanner.HostResult) *image.RGBA {
+	if len(cfgs) == 0 || len(resultsList) == 0 {
+		return image.NewRGBA(image.Rect(0, 0, 1, 1))
+	}
+	if len(cfgs) == 1 {
+		return Render(cfgs[0], resultsList[0])
+	}
+
+	subImgs := make([]*image.RGBA, len(cfgs))
+	maxW := 0
+	totalH := 0
+	dividerH := 4
+
+	for i := range cfgs {
+		subImgs[i] = Render(cfgs[i], resultsList[i])
+		if subImgs[i].Bounds().Dx() > maxW {
+			maxW = subImgs[i].Bounds().Dx()
+		}
+		totalH += subImgs[i].Bounds().Dy()
+		if i > 0 {
+			totalH += dividerH
+		}
+	}
+
+	combined := image.NewRGBA(image.Rect(0, 0, maxW, totalH))
+	draw.Draw(combined, combined.Bounds(), &image.Uniform{C: cfgs[0].ColorFrame}, image.Point{}, draw.Src)
+
+	curY := 0
+	for i, sub := range subImgs {
+		dx := (maxW - sub.Bounds().Dx()) / 2
+		dp := image.Pt(dx, curY)
+		r := image.Rectangle{Min: dp, Max: dp.Add(sub.Bounds().Size())}
+		draw.Draw(combined, r, sub, image.Point{}, draw.Src)
+		curY += sub.Bounds().Dy()
+		if i < len(subImgs)-1 {
+			curY += dividerH
+		}
+	}
+
+	return combined
 }

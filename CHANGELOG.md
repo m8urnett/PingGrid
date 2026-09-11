@@ -1,8 +1,130 @@
 # Changelog
 
 All notable changes to PingGrid will be documented in this file.
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
+PingGrid uses the project-specific padded `1.xx.NNN` application-version contract.
+
+## [1.04.000] - 2026-09-11
+
+### Changed
+- Reduced the executable entry point to version declaration, application invocation, and fatal-error handling.
+- Moved CLI construction, argument normalization, validation, sweep orchestration, reporting, interface inventory, and optimizer coordination into focused internal application components.
+- Propagated the caller context through Cobra into single-interface, multi-interface, and optimizer operations.
+
+## [1.03.000] - 2026-09-11
+
+### Fixed
+- Corrected the Windows `IP_ADAPTER_INFO` ABI layout, eliminating a race/checkptr crash while reading DHCP metadata.
+- Replaced invalid POSIX UDP handling with `golang.org/x/net/icmp` datagram/raw ICMP sockets.
+- Corrected JSON millisecond fields and added stable lower-case host telemetry.
+- Stopped treating every `.255` address as a broadcast and stopped stale pre-scan ARP entries from promoting offline hosts.
+- Corrected multi-interface ASCII file output, iframe rendering, fast filtering, grid validation, worker budgeting, and per-interface durations.
+- Removed fabricated `.1` gateways, rejected ambiguous interface-name matches, and correlated Windows Wi-Fi details with the requested adapter.
+
+### Changed
+- Added bounded scan, refresh, grid, canvas, and reverse-DNS resource use.
+- OS optimization now passes adapter values as data, has a one-minute deadline, and returns nonzero privilege and partial-failure outcomes.
+- Result files are replaced atomically; file-write diagnostics use stderr; `NO_COLOR` and `--no-color` are honored.
+- The authoritative version is now `const version` in `main.go`, using the required `1.xx.NNN` representation.
+- Compatible common packages are consumed from the shared sibling `toolkit` module.
+
+### Added
+- Added JSON schema v1 at `docs/json-schema-v1.json` and Windows version resources with Xato ownership metadata.
+
+### Breaking
+- JSON now includes `schema_version: 1`, explicit host objects, and numeric millisecond fields instead of serialized Go implementation types.
+- A custom output destination placed before the target must use `--flag=FILE`, removing hostname/filename ambiguity.
+
+## [1.2.6] - 2026-09-11
+
+### Added
+- **Multi-Adapter Simultaneous Sweeping (`-A`, `--all-interfaces`)**:
+  - **Concurrent Multi-Subnet Sweeping**: Scans all active, non-loopback network adapters simultaneously in parallel goroutines (e.g. Physical Ethernet LAN, Wi-Fi, Docker bridge, WSL vEthernet, VPN tunnels), mapping entire multi-homed network topologies in a single sweep cycle.
+  - **Interactive Multi-Adapter HTML Dashboard (`--html`)**:
+    - **Tabbed & Stacked Views**: Modern navigation tabs (`[ All Interfaces (Stacked) ]`, `[ Ethernet 2 ]`, `[ vEthernet (WSL) ]`) with instant client-side switching.
+    - **Adapter-Specific Controls**: Independent Link Health HUD banners, filter pills (*All, Active, Fast, Slow, Silent, Offline*), zoom controls, and live state change trackers per interface.
+    - **Global Action Controls**: One-click "Copy All Active" clipboard export across all interfaces, CSV export, JSON export, and dynamic dark/light theme switching.
+  - **Stacked Terminal Display (`--ascii` / default)**:
+    - Renders individual Link Health HUD banners, ASCII matrices, and interface summaries for each active network, followed by a consolidated multi-adapter summary.
+  - **Grouped Host Inventory (`-l, --list`)**:
+    - Generates interface-segmented columnar tables with resolved reverse DNS hostnames, IP addresses, MAC addresses, hardware manufacturers, and topology role badges.
+  - **Structured Multi-Interface JSON (`--json`)**:
+    - Outputs structured payloads containing top-level aggregate statistics (`total_hosts`, `total_active`, `interfaces_count`) alongside detailed per-interface arrays with link health and host telemetry.
+  - **Multi-Grid PNG Composition (`--png`)**:
+    - Stacks activity matrices vertically onto a unified high-resolution PNG image with canvas dividers and frame margins.
+  - **CLI Flags & Shorthands**: Supported via `-A`, `--all-interfaces`, and `--all`.
+
+---
+
+## [1.2.5] - 2026-09-11
+
+### Added
+- **Interface-Aware System Optimizations (`pg optimize-os`)**:
+  - **NIC-Level Energy Efficient Ethernet (EEE / 802.3az) Inspection & Control**: Inspects physical network interface hardware for EEE Low Power Idle (LPI) sleep states and provides automated remediation (`Set-NetAdapterAdvancedProperty` on Windows, `ethtool --set-eee <iface> eee off` on Linux) to prevent transceiver wake-up latency jitter and first-packet drop during fast subnet sweeps.
+  - **Receive Side Scaling (RSS) Hardware Distribution**: Verifies both global TCP stack multi-core receive processing (`netsh int tcp show global`) and adapter-level RSS queues across all active NICs, enabling multi-core packet distribution to prevent single-core bottlenecking during high-concurrency scans.
+  - **Interrupt Moderation Tuning**: Detects NIC interrupt moderation and coalescing configurations (Windows adapter properties and Linux `ethtool -c`), setting them to adaptive moderation for microsecond latency responses without packet drop.
+  - **PowerShell & Ethtool Integration**: Automates adapter-level queries and updates while supporting `--dry-run` preview mode and full idempotency verification (`Already set to ...`).
+
+---
+
+## [1.2.4] - 2026-09-11
+
+### Added
+- **Local ARP / Neighbor Cache Integration**:
+  - **OS Neighbor / ARP Cache Query**: Native high-speed ARP cache queries via `GetIpNetTable` (Windows `iphlpapi.dll`) and `/proc/net/arp` / `arp -an` (Linux/macOS), pre-warming network discovery and resolving hardware MAC addresses.
+  - **Hardware Manufacturer OUI Lookups**: Built-in 24-bit OUI lookup engine mapping MAC address prefixes to hardware manufacturers (Apple, Cisco, Microsoft, Dell, Intel, HP, Lenovo, Raspberry Pi, Ubiquiti, TP-Link, Netgear, MikroTik, Espressif, Amazon, Google, Samsung, Sony, etc.).
+  - **Silent / ICMP-Blocking Host Detection**: Automatically correlates ARP cache entries with ping sweep results; devices that respond to Layer 2 ARP requests but block ICMP Echo pings (such as Windows Defender Firewall, macOS, and IoT devices) are identified as `StatusSilent`.
+  - **Visual Silent Host Markers**: Displayed with `?` in plain ASCII, bold amber `?` in ANSI color mode, separate `[?] Silent/Firewalled: N` count in ASCII legend, `.cell-silent` styling with dashed amber glow in HTML dashboards, and `silent` status with `- (arp)` RTT in tabular listings.
+  - **Hardware Telemetry in Outputs**: MAC address and Vendor manufacturer columns added to tabular host listings (`-l`, `-l -v`), included in machine-readable JSON output (`--json`), and embedded in interactive HTML tooltips and HUD details.
+  - **CLI Flags (`--arp` / `--no-arp`)**: Enabled by default; can be toggled or bypassed using `--no-arp`.
+
+---
+
+## [1.2.3] - 2026-09-11
+
+### Added
+- **Interface & Link Health HUD**: Contextual link health banner and widget displaying hardware description, physical link speed, duplex, MTU, DHCP lease status, and wireless correlation:
+  - **Adapter Model & Hardware Description**: Identifies physical controller models (e.g. `Intel(R) Wi-Fi 6 AX201 160MHz`, `Microsoft Hyper-V Network Adapter #2`, `Realtek PCIe GbE Family Controller`).
+  - **Link Speed & Duplex**: Evaluates negotiated link speed and duplex status (e.g. `1 Gbps Full Duplex`, `10 Gbps`, or wireless rates `1.2 Gbps`).
+  - **MTU & DHCP Lease Status**: Displays interface MTU and dynamic DHCP lease state with remaining countdown (e.g. `Active (expires in 23h 14m)` or `Static IP`).
+  - **Wi-Fi Correlation**: When connected to 802.11 wireless networks, reports current SSID, protocol standard (`Wi-Fi 6 (802.11ax)`), frequency band (`5 GHz`, `2.4 GHz`, `6 GHz`), channel number, and signal strength percentage with calibrated RSSI dBm (`94% (-53 dBm)`).
+  - **Terminal Context Banner (`--hud` / `--no-hud`)**: Rendered directly above visual ASCII grids on local subnet sweeps.
+  - **Interactive HTML Dashboard Widget**: A responsive, glassmorphic status card positioned above the subnet grid with live indicator badges.
+  - **Enhanced Interface Inventory (`-I`, `--interfaces`)**: Added `SPEED` column to table mode and structured `link_health` object to machine-readable JSON payloads.
+
+---
+
+## [1.2.2] - 2026-09-11
+
+### Added
+- **Verbose Topology & Important Host Marking (`+`)**:
+  - **Pre-Sweep Topology Discovery**: When verbose mode (`-v`, `--verbose`) is enabled, PingGrid prints all discovered local network topology hosts (Local Host / Me, Default Gateway, DNS Resolvers, DHCP Server) prefixed with `+` and their role badge before commencing the sweep loop.
+  - **Live Sweep Marking**: During the sweep in verbose mode, important hosts (those with topological roles such as Me, Gateway, DNS, DHCP) are explicitly prefixed with `+` and their role badge.
+  - **Offline Important Host Notification**: If an important topology host does not respond during the sweep, verbose mode explicitly logs `+ Host <IP> <Roles> did not respond (offline)`, ensuring critical infrastructure reachability issues are immediately visible while regular offline hosts remain suppressed.
+  - **Tabular Host List Marking (`-l -v`)**: When rendering host lists with roles present, rows corresponding to important topology hosts are prefixed with `+ ` for immediate visual scanning.
+
+---
+
+## [1.2.1] - 2026-09-11
+
+### Added
+- **Multi-Role Topology Highlighting**: Automatically discovers and highlights key infrastructure and endpoint roles across the scanned network:
+  - **Local Host ("Me")**: The local machine's IP on the swept interface is distinctly rendered with an `@` glyph in plain ASCII, bold bright cyan `\x1b[96;1m@\x1b[0m` in ANSI color mode, `[Me]` badge in sorted host lists, and a glowing cyan accent border in the interactive HTML dashboard.
+  - **Default Gateway**: Detected primary router/gateway addresses maintain highlight styling with `^` and `[Gateway]` role badge.
+  - **DNS Resolvers & DHCP Server**: Automatically queries configured DNS servers and DHCP server IP from adapter metadata, attaching `[DNS]` and `[DHCP]` badges to matching hosts in host list outputs and HTML dashboard hover tooltips.
+  - **Adaptive ASCII Matrix Legend**: Dynamically displays `[@] Me: 1` alongside gateway and status counts when the local host is present in the swept range.
+
+---
+
+## [1.2.0] - 2026-09-11
+
+### Added
+- **Zero-Config Local Subnet Sweeping**: Running `pg` without positional target arguments now automatically sweeps the active primary local subnet instead of displaying the help screen. Help remains accessible via `pg -h`, `pg --help`, `pg /?`, or `pg /h`.
+- **True Subnet Mask & Primary Gateway Detection**: Subnet auto-discovery detects the actual configured CIDR mask (e.g. `/22`, `/23`, `/25`, `/28`) from the active network interface rather than forcing a generic `/24`. Overly broad corporate masks (`/8`, `/16`) are safely constrained to a local `/24` block during zero-config execution to prevent runaway sweeps. Real default gateways are queried from kernel routing tables via `iphlpapi` / routing inspection.
+- **Interface Targeting (`-i`, `--interface <name|index>`)**: Added `-i` / `--interface` flag to target and sweep the subnet of a specific network adapter by name or numeric index (e.g. `pg -i "Wi-Fi"`, `pg -i eth0`, `pg -i 1`). Supports all switch prefix variants (`/i`, `-i`, `--interface`, `/interface`).
+- **Network Interface Inventory (`-I`, `--interfaces`)**: Added `-I` / `--interfaces` flag to inspect and list all local network adapters with their index, interface name, operational status, IPv4 address/CIDR, MAC hardware address, default gateway, and primary egress indicator. Supports machine-readable output with `--json`.
+
+---
 
 ## [1.1.0] - 2026-09-10
 

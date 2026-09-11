@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/m8urnett/PingGrid/internal/toolkit/iprange"
+	"github.com/m8urnett/toolkit/iprange"
 )
 
 // Config holds scanner options.
@@ -20,8 +20,12 @@ type Config struct {
 	Timeout       time.Duration
 	SlowThreshold time.Duration
 	GatewayIP     net.IP
+	LocalHostIP   net.IP
+	DNSServers    []net.IP
+	DHCPServer    net.IP
 	Pings         int
 	BroadcastIPs  []net.IP
+	DisableARP    bool
 }
 
 // DefaultScannerConfig returns sensible defaults for scanning a local network.
@@ -32,6 +36,7 @@ func DefaultScannerConfig() Config {
 		Timeout:       150 * time.Millisecond,
 		SlowThreshold: 100 * time.Millisecond,
 		Pings:         3,
+		DisableARP:    false,
 	}
 }
 
@@ -156,11 +161,6 @@ func IsIPv4Broadcast(ip net.IP, broadcasts []net.IP) bool {
 		}
 	}
 
-	// Standard IPv4 class C / /24 broadcast (all host bits set in last octet)
-	if ip4[3] == 255 {
-		return true
-	}
-
 	return false
 }
 
@@ -218,51 +218,50 @@ func GenerateIPs(target string, count int) ([]net.IP, net.IP, error) {
 }
 
 // DetectLocalSubnet looks up local active network interfaces to find the primary IPv4 network.
+// It detects the actual subnet mask (e.g. /22, /23, /25, /28) and real gateway IP.
 func DetectLocalSubnet() (string, net.IP, error) {
-	ifaces, err := net.Interfaces()
+	ifaces, err := GetNetworkInterfaces()
 	if err != nil {
 		return "", nil, err
 	}
 
+	// First pass: look for the primary interface with an active IPv4 address
 	for _, iface := range ifaces {
-		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
-			continue
-		}
-		addrs, err := iface.Addrs()
-		if err != nil {
-			continue
-		}
-		for _, addr := range addrs {
-			ipNet, ok := addr.(*net.IPNet)
-			if !ok {
-				continue
-			}
-			ip4 := ipNet.IP.To4()
-			if ip4 == nil || ip4.IsLoopback() || ip4.IsLinkLocalUnicast() {
-				continue
-			}
-			// Derive standard 256-host /24 block encompassing local address
-			base := ip4.Mask(net.CIDRMask(24, 32))
-			gw := net.IPv4(base[0], base[1], base[2], 1)
-			return fmt.Sprintf("%s/24", base.String()), gw, nil
+		if iface.IsPrimary && iface.IsUp && iface.IP != nil && !iface.IsLoopback {
+			return iface.SweepCIDR(), iface.Gateway, nil
 		}
 	}
+
+	// Second pass: any active non-loopback IPv4 interface
+	for _, iface := range ifaces {
+		if iface.IsUp && !iface.IsLoopback && iface.IP != nil && !iface.IP.IsLinkLocalUnicast() {
+			return iface.SweepCIDR(), iface.Gateway, nil
+		}
+	}
+
 	return "", nil, fmt.Errorf("no active IPv4 network interface found")
 }
 
-// ProgressFunc is called as each host is pinged.
+// ProgressFunc is called serially as each host completes.
 type ProgressFunc func(completed, total int, result HostResult)
 
 // Sweep executes the ping sweep across all provided IP addresses using a worker pool.
 func Sweep(ctx context.Context, ips []net.IP, cfg Config, onProgress ProgressFunc) []HostResult {
 	if cfg.Concurrency <= 0 {
 		cfg.Concurrency = 256
+	} else if cfg.Concurrency > MaxConcurrency {
+		cfg.Concurrency = MaxConcurrency
 	}
 	if cfg.Timeout <= 0 {
 		cfg.Timeout = 150 * time.Millisecond
 	}
 	if cfg.SlowThreshold <= 0 {
 		cfg.SlowThreshold = 100 * time.Millisecond
+	}
+	if cfg.Pings <= 0 {
+		cfg.Pings = 1
+	} else if cfg.Pings > MaxPings {
+		cfg.Pings = MaxPings
 	}
 
 	total := len(ips)
@@ -284,13 +283,48 @@ func Sweep(ctx context.Context, ips []net.IP, cfg Config, onProgress ProgressFun
 		mu        sync.Mutex
 	)
 
+	var preARP map[string]ARPEntry
+	if !cfg.DisableARP {
+		preARP, _ = GetARPTable()
+	}
+
 	allTasks := make([]task, total)
 	for i, ip := range ips {
 		allTasks[i] = task{index: i, ip: ip}
 	}
-	runTaskBatch(ctx, allTasks, pinger, cfg, results, total, &completed, &mu, onProgress)
+	runTaskBatch(ctx, allTasks, pinger, cfg, preARP, results, total, &completed, &mu, onProgress)
+
+	if !cfg.DisableARP {
+		postARP, _ := GetARPTable()
+		enrichResultsWithARP(results, preARP, postARP)
+	}
 
 	return results
+}
+
+func enrichResultsWithARP(results []HostResult, preARP, postARP map[string]ARPEntry) {
+	for i := range results {
+		ipStr := results[i].IP.String()
+		entry, postScanEntry := postARP[ipStr]
+		preScanEntry, existedBeforeScan := preARP[ipStr]
+		if !postScanEntry && existedBeforeScan {
+			entry = preScanEntry
+		}
+		if !postScanEntry && !existedBeforeScan {
+			continue
+		}
+		if entry.MAC == "" {
+			continue
+		}
+		results[i].MAC = entry.MAC
+		results[i].Vendor = entry.Vendor
+		// A newly learned post-scan entry is evidence that the target answered
+		// neighbor discovery. A pre-existing entry may be stale and must not
+		// promote an otherwise offline host.
+		if results[i].Status == StatusOffline && postScanEntry && !existedBeforeScan {
+			results[i].Status = StatusSilent
+		}
+	}
 }
 
 type task struct {
@@ -303,6 +337,7 @@ func runTaskBatch(
 	batch []task,
 	pinger Pinger,
 	cfg Config,
+	preARP map[string]ARPEntry,
 	results []HostResult,
 	total int,
 	completed *int,
@@ -351,15 +386,14 @@ func runTaskBatch(
 					mu.Unlock()
 
 					if onProgress != nil {
+						mu.Lock()
 						onProgress(currCompleted, total, res)
+						mu.Unlock()
 					}
 					continue
 				}
 
 				numPings := cfg.Pings
-				if numPings <= 0 {
-					numPings = 1
-				}
 
 				var (
 					bestRTT time.Duration
@@ -418,6 +452,23 @@ func runTaskBatch(
 					}
 				}
 
+				var roles []HostRole
+				if cfg.LocalHostIP != nil && t.ip.Equal(cfg.LocalHostIP) {
+					roles = append(roles, RoleLocalHost)
+				}
+				if cfg.GatewayIP != nil && t.ip.Equal(cfg.GatewayIP) {
+					roles = append(roles, RoleGateway)
+				}
+				for _, dnsIP := range cfg.DNSServers {
+					if dnsIP != nil && t.ip.Equal(dnsIP) {
+						roles = append(roles, RoleDNS)
+						break
+					}
+				}
+				if cfg.DHCPServer != nil && t.ip.Equal(cfg.DHCPServer) {
+					roles = append(roles, RoleDHCP)
+				}
+
 				if status != StatusOffline {
 					if cfg.GatewayIP != nil && t.ip.Equal(cfg.GatewayIP) {
 						status = StatusHighlight
@@ -426,10 +477,21 @@ func runTaskBatch(
 					}
 				}
 
+				var mac, vendor string
+				if preARP != nil {
+					if entry, ok := preARP[t.ip.String()]; ok && entry.MAC != "" {
+						mac = entry.MAC
+						vendor = entry.Vendor
+					}
+				}
+
 				res := HostResult{
 					IP:     t.ip,
 					Status: status,
+					Roles:  roles,
 					RTT:    bestRTT,
+					MAC:    mac,
+					Vendor: vendor,
 					Err:    lastErr,
 				}
 
@@ -440,7 +502,9 @@ func runTaskBatch(
 				mu.Unlock()
 
 				if onProgress != nil {
+					mu.Lock()
 					onProgress(currCompleted, total, res)
+					mu.Unlock()
 				}
 			}
 		}()

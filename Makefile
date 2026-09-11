@@ -1,12 +1,10 @@
 BINARY_NAME := pg
-VERSION := 1.1.0
-BUILD_NUM := 47
 ifeq ($(OS),Windows_NT)
   GIT_COMMIT := $(shell git rev-parse --short HEAD 2>NUL || echo dev)
-  BUILD_DATE := $(shell powershell -NoProfile -Command "(Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')" 2>NUL || echo unknown)
+  BUILD_DATE := $(shell git show -s --format=%%cI HEAD 2>NUL || echo unknown)
 else
   GIT_COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null || echo dev)
-  BUILD_DATE := $(shell date -u +'%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || echo unknown)
+  BUILD_DATE := $(shell git show -s --format=%cI HEAD 2>/dev/null || echo unknown)
 endif
 
 LDFLAGS := -ldflags "\
@@ -14,11 +12,14 @@ LDFLAGS := -ldflags "\
 	-X github.com/m8urnett/PingGrid/internal/version.GitCommit=$(GIT_COMMIT) \
 	-X github.com/m8urnett/PingGrid/internal/version.BuildDate=$(BUILD_DATE)"
 
-.PHONY: build build-windows build-linux build-darwin build-all run test test-race test-coverage vet lint fmt tidy deps verify-deps vuln check ci audit install clean
+.PHONY: build prepare-windows-resource build-windows build-linux build-darwin build-all run test test-race test-coverage vet lint fmt tidy deps verify-deps vuln check ci audit install clean
 
 build: build-windows
 
-build-windows:
+prepare-windows-resource:
+	windres pg_windows_amd64.rc -O coff -o resource_windows_amd64.syso
+
+build-windows: prepare-windows-resource
 	go build -trimpath $(LDFLAGS) -o bin/$(BINARY_NAME).exe .
 
 build-linux:
@@ -50,7 +51,7 @@ lint:
 	golangci-lint run
 
 fmt:
-	gofmt -s -w .
+	go fmt ./...
 	-goimports -w .
 
 tidy:
@@ -59,7 +60,9 @@ tidy:
 deps:
 	go mod download
 
-verify-deps: tidy deps
+
+verify-deps: deps
+	go mod tidy -diff
 	go mod verify
 
 vuln:
@@ -77,6 +80,6 @@ endif
 
 check: fmt vet test
 
-ci: verify-deps fmt vet lint test vuln
+ci: verify-deps fmt vet lint test test-race vuln
 
 audit: ci

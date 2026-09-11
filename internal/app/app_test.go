@@ -1,21 +1,67 @@
-package main
+package app
 
 import (
+	"bytes"
+	"context"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/m8urnett/PingGrid/internal/grid"
+	"github.com/m8urnett/PingGrid/internal/scanner"
+	"github.com/m8urnett/toolkit/log"
+	"github.com/spf13/cobra"
 )
+
+func newRootCmd() (*cobra.Command, *appFlags) {
+	return newRootCmdForVersion("test")
+}
+
+func TestExecuteHonorsCanceledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if err := Execute(ctx, []string{"pg", "127.0.0.1", "--summary", "--quiet"}, "test"); err != nil {
+		t.Fatalf("Execute returned an error for canceled context: %v", err)
+	}
+}
+
+func TestScanFlagUpperBounds(t *testing.T) {
+	tests := [][]string{
+		{"127.0.0.1", "--pings", "11", "--summary"},
+		{"127.0.0.1", "--concurrency", "1025", "--summary"},
+		{"127.0.0.1", "--width", "16385", "--summary"},
+		{"127.0.0.1", "--refresh", "1ms", "--summary"},
+	}
+	for _, args := range tests {
+		cmd, _ := newRootCmd()
+		cmd.SetArgs(args)
+		if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "INPUT_OUT_OF_RANGE") {
+			t.Errorf("Execute(%v) error = %v, want INPUT_OUT_OF_RANGE", args, err)
+		}
+	}
+}
 
 func TestOutputFlagsRegistration(t *testing.T) {
 	cmd, flags := newRootCmd()
 
-	expectedFlags := []string{"ascii", "json", "summary", "html", "iframe", "png", "pings", "list", "examples"}
+	expectedFlags := []string{"ascii", "json", "summary", "html", "iframe", "png", "pings", "list", "examples", "interface", "interfaces"}
 	for _, flagName := range expectedFlags {
 		f := cmd.Flags().Lookup(flagName)
 		if f == nil {
 			t.Errorf("Expected flag --%s to be registered", flagName)
 		}
+	}
+
+	// Verify shorthand -i for interface and -I for interfaces
+	if f := cmd.Flags().Lookup("interface"); f == nil || f.Shorthand != "i" {
+		t.Errorf("Expected shorthand -i for interface")
+	}
+	if f := cmd.Flags().Lookup("interfaces"); f == nil || f.Shorthand != "I" {
+		t.Errorf("Expected shorthand -I for interfaces")
 	}
 
 	// Verify alias --embed and --text exist
@@ -119,10 +165,10 @@ func TestNormalizer(t *testing.T) {
 		t.Errorf("normalizeCLIArgs failed, expected %v, got %v", expected, args)
 	}
 
-	// Space-separated filename before target
+	// A filename before the target is ambiguous and must not be consumed.
 	args = normalizeCLIArgs([]string{"pg", "--html", "mygrid.html", "127.0.0.1"})
-	expected = []string{"pg", "--html=mygrid.html", "127.0.0.1"}
-	if len(args) != len(expected) || args[1] != expected[1] || args[2] != expected[2] {
+	expected = []string{"pg", "--html", "mygrid.html", "127.0.0.1"}
+	if len(args) != len(expected) || args[1] != expected[1] || args[2] != expected[2] || args[3] != expected[3] {
 		t.Errorf("normalizeCLIArgs failed, expected %v, got %v", expected, args)
 	}
 
@@ -138,6 +184,14 @@ func TestNormalizer(t *testing.T) {
 	expected = []string{"pg", "--html", "192.168.1.0/24"}
 	if len(args) != len(expected) || args[1] != expected[1] || args[2] != expected[2] {
 		t.Errorf("normalizeCLIArgs failed, expected %v, got %v", expected, args)
+	}
+
+	// Hostnames and wildcard expressions after an output flag are targets, not files.
+	for _, target := range []string{"printer.local", "192.168.1.*", "192.168.1.[1-30]"} {
+		args = normalizeCLIArgs([]string{"pg", "--json", target})
+		if len(args) != 3 || args[1] != "--json" || args[2] != target {
+			t.Errorf("normalizeCLIArgs consumed target %q as a file: %v", target, args)
+		}
 	}
 
 	// Space-separated filename for --list and -l
@@ -165,8 +219,8 @@ func TestNormalizer(t *testing.T) {
 		input    []string
 		expected []string
 	}{
-		{[]string{"pg", "/html", "out.html", "127.0.0.1"}, []string{"pg", "--html=out.html", "127.0.0.1"}},
-		{[]string{"pg", "-html", "out.html", "127.0.0.1"}, []string{"pg", "--html=out.html", "127.0.0.1"}},
+		{[]string{"pg", "/html", "out.html", "127.0.0.1"}, []string{"pg", "--html", "out.html", "127.0.0.1"}},
+		{[]string{"pg", "-html", "out.html", "127.0.0.1"}, []string{"pg", "--html", "out.html", "127.0.0.1"}},
 		{[]string{"pg", "/p", "3", "127.0.0.1"}, []string{"pg", "-p", "3", "127.0.0.1"}},
 		{[]string{"pg", "--p", "3", "127.0.0.1"}, []string{"pg", "-p", "3", "127.0.0.1"}},
 		{[]string{"pg", "/pings", "3", "127.0.0.1"}, []string{"pg", "--pings", "3", "127.0.0.1"}},
@@ -192,6 +246,16 @@ func TestNormalizer(t *testing.T) {
 		{[]string{"pg", "/help"}, []string{"pg", "--help"}},
 		{[]string{"pg", "/ver"}, []string{"pg", "--version"}},
 		{[]string{"pg", "/version"}, []string{"pg", "--version"}},
+		{[]string{"pg", "-i", "eth0"}, []string{"pg", "-i", "eth0"}},
+		{[]string{"pg", "/i", "eth0"}, []string{"pg", "-i", "eth0"}},
+		{[]string{"pg", "/i:eth0"}, []string{"pg", "-i=eth0"}},
+		{[]string{"pg", "--interface", "eth0"}, []string{"pg", "--interface", "eth0"}},
+		{[]string{"pg", "/interface", "eth0"}, []string{"pg", "--interface", "eth0"}},
+		{[]string{"pg", "-I"}, []string{"pg", "-I"}},
+		{[]string{"pg", "/I"}, []string{"pg", "-I"}},
+		{[]string{"pg", "--interfaces"}, []string{"pg", "--interfaces"}},
+		{[]string{"pg", "/interfaces"}, []string{"pg", "--interfaces"}},
+		{[]string{"pg", "interfaces"}, []string{"pg", "--interfaces"}},
 	}
 
 	for _, tc := range switchTests {
@@ -384,8 +448,8 @@ func TestListOutputFormat(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Command failed with -l: %v", err)
 	}
-	if flags.OutputFormat != "list" {
-		t.Errorf("Expected OutputFormat to be 'list', got %q", flags.OutputFormat)
+	if flags.outputFormat != "list" {
+		t.Errorf("Expected outputFormat to be 'list', got %q", flags.outputFormat)
 	}
 }
 
@@ -474,16 +538,16 @@ func TestShellCompletionSubcommands(t *testing.T) {
 
 func TestARPCacheRemoved(t *testing.T) {
 	cmd, _ := newRootCmd()
-	for _, flagName := range []string{"arp-cache", "arp_cache", "arp", "use-arp-cache"} {
+	for _, flagName := range []string{"arp-cache", "arp_cache", "use-arp-cache"} {
 		if f := cmd.Flags().Lookup(flagName); f != nil {
-			t.Errorf("Expected --%s to be removed, but it was found", flagName)
+			t.Errorf("Expected legacy --%s to be removed, but it was found", flagName)
 		}
 	}
 
-	// Executing with --arp-cache should fail with unknown flag error
+	// Executing with removed legacy --arp-cache should fail with unknown flag error
 	cmd.SetArgs(normalizeCLIArgs([]string{"127.0.0.1", "--arp-cache"}))
 	if err := cmd.Execute(); err == nil {
-		t.Errorf("Expected error when running with removed --arp-cache flag, but got nil")
+		t.Errorf("Expected error when running with removed legacy --arp-cache flag, but got nil")
 	}
 }
 
@@ -538,6 +602,208 @@ func TestOptimizeOS(t *testing.T) {
 	}
 }
 
+func TestInterfaceListingExecution(t *testing.T) {
+	// Table mode
+	cmd1, _ := newRootCmd()
+	cmd1.SetArgs(normalizeCLIArgs([]string{"--interfaces"}))
+	if err := cmd1.Execute(); err != nil {
+		t.Fatalf("Failed to execute --interfaces: %v", err)
+	}
 
+	// JSON mode
+	cmd2, _ := newRootCmd()
+	cmd2.SetArgs(normalizeCLIArgs([]string{"--interfaces", "--json"}))
+	if err := cmd2.Execute(); err != nil {
+		t.Fatalf("Failed to execute --interfaces --json: %v", err)
+	}
 
+	// Shorthand -I
+	cmd3, _ := newRootCmd()
+	cmd3.SetArgs(normalizeCLIArgs([]string{"-I"}))
+	if err := cmd3.Execute(); err != nil {
+		t.Fatalf("Failed to execute -I: %v", err)
+	}
+}
 
+func TestVerboseImportantHostsSweep(t *testing.T) {
+	var buf bytes.Buffer
+	logger := &log.Logger{
+		Stdout: &buf,
+		Stderr: &buf,
+		Quiet:  false,
+	}
+
+	appFl := &appFlags{
+		Verbose:     true,
+		target:      "127.0.0.1",
+		concurrency: 2,
+		pings:       1,
+		optASCII:    stdoutSentinel,
+	}
+
+	scanCfg := scanner.Config{
+		LocalHostIP: net.ParseIP("127.0.0.1"),
+		GatewayIP:   net.ParseIP("192.0.2.1"), // RFC 5737 TEST-NET-1 (unreachable/offline)
+		Timeout:     50 * time.Millisecond,
+		Pings:       1,
+	}
+
+	ips := []net.IP{net.ParseIP("127.0.0.1"), net.ParseIP("192.0.2.1")}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	_, err := executeSweepIteration(ctx, appFl, grid.GridConfig{}, ips, scanCfg, logger, 1, nil)
+	if err != nil {
+		t.Fatalf("executeSweepIteration failed: %v", err)
+	}
+
+	output := buf.String()
+
+	// 1. Verify online important host (127.0.0.1 [Me]) has + prefix and role badge
+	if !strings.Contains(output, "+ Host 127.0.0.1 [Me] responded") {
+		t.Errorf("Expected '+ Host 127.0.0.1 [Me] responded' in verbose output, got:\n%s", output)
+	}
+
+	// 2. Verify offline important host (192.0.2.1 [Gateway]) has + prefix, role badge, and offline message
+	if !strings.Contains(output, "+ Host 192.0.2.1 [Gateway] did not respond (offline)") {
+		t.Errorf("Expected '+ Host 192.0.2.1 [Gateway] did not respond (offline)' in verbose output, got:\n%s", output)
+	}
+}
+
+func TestHUDFlagsAndBanner(t *testing.T) {
+	// 1. Test default hud is true
+	cmdDef, flagsDef := newRootCmd()
+	cmdDef.SetArgs(normalizeCLIArgs([]string{"127.0.0.1", "--summary", "--quiet"}))
+	if err := cmdDef.Execute(); err != nil {
+		t.Fatalf("Command failed: %v", err)
+	}
+	if !flagsDef.showHUD {
+		t.Errorf("Expected flags.showHUD to default to true")
+	}
+
+	// 2. Test --no-hud sets showHUD to false
+	cmdNoHUD, flagsNoHUD := newRootCmd()
+	cmdNoHUD.SetArgs(normalizeCLIArgs([]string{"127.0.0.1", "--no-hud", "--summary", "--quiet"}))
+	if err := cmdNoHUD.Execute(); err != nil {
+		t.Fatalf("Command failed with --no-hud: %v", err)
+	}
+	if flagsNoHUD.showHUD {
+		t.Errorf("Expected --no-hud to set flags.showHUD to false")
+	}
+
+	// 3. Test HUD banner output in executeSweepIteration
+	var buf bytes.Buffer
+	logger := &log.Logger{Stdout: &buf, Stderr: &buf}
+	appFl := &appFlags{
+		showHUD:  true,
+		optASCII: stdoutSentinel,
+	}
+	gridCfg := grid.GridConfig{
+		InterfaceName: "Ethernet 2",
+		LinkHealth: &scanner.LinkHealth{
+			AdapterModel: "Test Adapter",
+			LinkSpeedStr: "1 Gbps",
+			MTU:          1500,
+		},
+	}
+	scanCfg := scanner.Config{
+		LocalHostIP: net.ParseIP("127.0.0.1"),
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	_, err := executeSweepIteration(ctx, appFl, gridCfg, []net.IP{net.ParseIP("127.0.0.1")}, scanCfg, logger, 1, nil)
+	if err != nil {
+		t.Fatalf("executeSweepIteration failed: %v", err)
+	}
+	// Note that fmt.Print writes to stdout; verify execution without error
+}
+
+func TestARPFlagsAndSweep(t *testing.T) {
+	// 1. Test default --arp is true
+	cmdDefault, flagsDefault := newRootCmd()
+	cmdDefault.SetArgs(normalizeCLIArgs([]string{"127.0.0.1", "--summary", "--quiet"}))
+	if err := cmdDefault.Execute(); err != nil {
+		t.Fatalf("Command failed: %v", err)
+	}
+	if !flagsDefault.enableARP {
+		t.Errorf("Expected enableARP to default to true")
+	}
+
+	// 2. Test --no-arp sets enableARP to false
+	cmdNoARP, flagsNoARP := newRootCmd()
+	cmdNoARP.SetArgs(normalizeCLIArgs([]string{"127.0.0.1", "--no-arp", "--summary", "--quiet"}))
+	if err := cmdNoARP.Execute(); err != nil {
+		t.Fatalf("Command failed with --no-arp: %v", err)
+	}
+	if flagsNoARP.enableARP {
+		t.Errorf("Expected --no-arp to set flags.enableARP to false")
+	}
+}
+
+func TestAllInterfacesFlags(t *testing.T) {
+	cmd, flags := newRootCmd()
+	f := cmd.Flags().Lookup("all-interfaces")
+	if f == nil {
+		t.Fatal("Expected --all-interfaces to be registered")
+	}
+	if f.Shorthand != "A" {
+		t.Errorf("Expected shorthand -A for --all-interfaces, got %q", f.Shorthand)
+	}
+
+	// Test flag parsing
+	cmd2, flags2 := newRootCmd()
+	cmd2.SetArgs(normalizeCLIArgs([]string{"-A", "--summary", "--quiet"}))
+	_ = cmd2.ParseFlags(normalizeCLIArgs([]string{"-A"}))
+	if !flags2.allInterfaces {
+		// Verify normalization
+		norm, _ := normalizeFlagToken("-A")
+		if norm != "--all-interfaces" {
+			t.Errorf("Expected -A to normalize to --all-interfaces, got %s", norm)
+		}
+	}
+
+	// Test conflicting with -i
+	cmdConflict, _ := newRootCmd()
+	cmdConflict.SetArgs(normalizeCLIArgs([]string{"--all-interfaces", "-i", "eth0"}))
+	err := cmdConflict.Execute()
+	if err == nil {
+		t.Error("Expected error when combining --all-interfaces with -i")
+	} else if !strings.Contains(err.Error(), "USAGE_CONFLICTING_FLAGS") {
+		t.Errorf("Expected USAGE_CONFLICTING_FLAGS, got %v", err)
+	}
+
+	// Test conflicting with positional target
+	cmdConflictTarget, _ := newRootCmd()
+	cmdConflictTarget.SetArgs(normalizeCLIArgs([]string{"--all-interfaces", "10.8.0.0/24"}))
+	err = cmdConflictTarget.Execute()
+	if err == nil {
+		t.Error("Expected error when combining --all-interfaces with positional target")
+	} else if !strings.Contains(err.Error(), "USAGE_CONFLICTING_FLAGS") {
+		t.Errorf("Expected USAGE_CONFLICTING_FLAGS, got %v", err)
+	}
+	_ = flags
+}
+
+func TestAllInterfacesExecution(t *testing.T) {
+	tempDir := t.TempDir()
+	jsonPath := filepath.Join(tempDir, "multi-test.json")
+
+	cmd, _ := newRootCmd()
+	cmd.SetArgs(normalizeCLIArgs([]string{"--all-interfaces", "--json=" + jsonPath, "--timeout=50ms", "-p=1", "--quiet"}))
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("Failed to execute --all-interfaces sweep: %v", err)
+	}
+
+	data, err := os.ReadFile(jsonPath)
+	if err != nil {
+		t.Fatalf("Failed to read JSON output file: %v", err)
+	}
+
+	if !strings.Contains(string(data), `"multi_interface": true`) {
+		t.Errorf("Expected 'multi_interface: true' in JSON output, got:\n%s", string(data))
+	}
+}

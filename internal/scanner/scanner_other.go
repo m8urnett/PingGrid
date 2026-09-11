@@ -4,7 +4,6 @@ package scanner
 
 import (
 	"context"
-	"encoding/binary"
 	"fmt"
 	"math/rand"
 	"net"
@@ -13,7 +12,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	toolkitexec "github.com/m8urnett/PingGrid/internal/toolkit/exec"
+	toolkitexec "github.com/m8urnett/toolkit/exec"
+	"golang.org/x/net/icmp"
+	"golang.org/x/net/ipv4"
 )
 
 type nonWinPinger struct {
@@ -31,13 +32,13 @@ func NewPlatformPinger() Pinger {
 	}
 
 	// Test if unprivileged UDP ICMP is supported (macOS default, Linux with ping_group_range)
-	if conn, err := net.ListenPacket("udp4", "0.0.0.0:0"); err == nil {
+	if conn, err := icmp.ListenPacket("udp4", "0.0.0.0"); err == nil {
 		_ = conn.Close()
 		p.canUDP = true
 	}
 
 	// Test if raw ICMP socket is supported (running as root or CAP_NET_RAW on Linux)
-	if conn, err := net.ListenPacket("ip4:icmp", "0.0.0.0"); err == nil {
+	if conn, err := icmp.ListenPacket("ip4:icmp", "0.0.0.0"); err == nil {
 		_ = conn.Close()
 		p.canRaw = true
 	}
@@ -59,10 +60,12 @@ func (p *nonWinPinger) Ping(ctx context.Context, ip net.IP, timeout time.Duratio
 	if ip4 == nil {
 		return 0, fmt.Errorf("non-IPv4 address: %v", ip)
 	}
+	attemptCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
 
 	// 1. Try unprivileged UDP ICMP or raw ICMP socket
 	if p.canUDP || p.canRaw {
-		rtt, err := p.pingICMP(ctx, ip4, timeout)
+		rtt, err := p.pingICMP(attemptCtx, ip4, timeout)
 		if err == nil {
 			return rtt, nil
 		}
@@ -70,14 +73,14 @@ func (p *nonWinPinger) Ping(ctx context.Context, ip net.IP, timeout time.Duratio
 
 	// 2. Fallback to system ping command if socket denied
 	if p.hasPing {
-		rtt, err := p.pingCommand(ctx, ip4, timeout)
+		rtt, err := p.pingCommand(attemptCtx, ip4, timeout)
 		if err == nil {
 			return rtt, nil
 		}
 	}
 
 	// 3. Fallback to TCP port probe
-	return fallbackPing(ctx, ip, timeout)
+	return fallbackPing(attemptCtx, ip, timeout)
 }
 
 func (p *nonWinPinger) pingICMP(ctx context.Context, ip net.IP, timeout time.Duration) (time.Duration, error) {
@@ -86,7 +89,8 @@ func (p *nonWinPinger) pingICMP(ctx context.Context, ip net.IP, timeout time.Dur
 		network = "ip4:icmp"
 	}
 
-	conn, err := net.ListenPacket(network, "0.0.0.0:0")
+	listenAddress := "0.0.0.0"
+	conn, err := icmp.ListenPacket(network, listenAddress)
 	if err != nil {
 		return 0, err
 	}
@@ -97,21 +101,24 @@ func (p *nonWinPinger) pingICMP(ctx context.Context, ip net.IP, timeout time.Dur
 	seq := uint16(atomic.AddUint32(&p.seqNumber, 1) & 0xffff)
 	id := p.id
 
-	// Construct 8-byte ICMP Echo Request + 24-byte payload
-	payload := []byte("PingGridSweepPlatformPingV020!!")
-	msg := make([]byte, 8+len(payload))
-	msg[0] = 8 // ICMP Echo Request
-	msg[1] = 0 // Code 0
-	msg[2] = 0 // Checksum placeholder
-	msg[3] = 0
-	binary.BigEndian.PutUint16(msg[4:6], id)
-	binary.BigEndian.PutUint16(msg[6:8], seq)
-	copy(msg[8:], payload)
-
-	cs := icmpChecksum(msg)
-	binary.BigEndian.PutUint16(msg[2:4], cs)
+	request := icmp.Message{
+		Type: ipv4.ICMPTypeEcho,
+		Code: 0,
+		Body: &icmp.Echo{
+			ID:   int(id),
+			Seq:  int(seq),
+			Data: []byte("PingGridSweepPlatformPingV030"),
+		},
+	}
+	msg, err := request.Marshal(nil)
+	if err != nil {
+		return 0, fmt.Errorf("marshal ICMP request: %w", err)
+	}
 
 	deadline := time.Now().Add(timeout)
+	if contextDeadline, ok := ctx.Deadline(); ok && contextDeadline.Before(deadline) {
+		deadline = contextDeadline
+	}
 	_ = conn.SetDeadline(deadline)
 
 	var dst net.Addr
@@ -134,34 +141,20 @@ func (p *nonWinPinger) pingICMP(ctx context.Context, ip net.IP, timeout time.Dur
 		default:
 		}
 
-		n, from, err := conn.ReadFrom(replyBuf)
+		n, _, err := conn.ReadFrom(replyBuf)
 		if err != nil {
 			return 0, err
 		}
 
 		elapsed := time.Since(start)
 
-		// Parse reply: handle raw IP header offset if ip4:icmp
-		data := replyBuf[:n]
-		if network == "ip4:icmp" && len(data) >= 20 {
-			// Skip IPv4 header (usually 20 bytes, header length in lower nibble of byte 0)
-			ihl := int(data[0]&0x0f) * 4
-			if len(data) >= ihl {
-				data = data[ihl:]
-			}
-		}
-
-		if len(data) < 8 {
+		reply, err := icmp.ParseMessage(1, replyBuf[:n])
+		if err != nil || reply.Type != ipv4.ICMPTypeEchoReply {
 			continue
 		}
-
-		// Check for ICMP Echo Reply (Type 0, Code 0)
-		if data[0] == 0 && data[1] == 0 {
-			replySeq := binary.BigEndian.Uint16(data[6:8])
-			if replySeq == seq {
-				_ = from
-				return elapsed, nil
-			}
+		echo, ok := reply.Body.(*icmp.Echo)
+		if ok && echo.Seq == int(seq) {
+			return elapsed, nil
 		}
 	}
 }
@@ -187,19 +180,4 @@ func (p *nonWinPinger) pingCommand(ctx context.Context, ip net.IP, timeout time.
 	}
 
 	return res.Duration, nil
-}
-
-func icmpChecksum(data []byte) uint16 {
-	var sum uint32
-	length := len(data)
-	for i := 0; i < length-1; i += 2 {
-		sum += uint32(binary.BigEndian.Uint16(data[i : i+2]))
-	}
-	if length%2 != 0 {
-		sum += uint32(data[length-1]) << 8
-	}
-	for (sum >> 16) > 0 {
-		sum = (sum & 0xffff) + (sum >> 16)
-	}
-	return ^uint16(sum)
 }

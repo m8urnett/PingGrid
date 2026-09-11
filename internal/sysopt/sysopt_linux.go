@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"strings"
@@ -70,6 +71,37 @@ func Inspect(ctx context.Context) ([]Optimization, error) {
 			Command:      fmt.Sprintf("sysctl -w %s=\"%s\"", p.key, p.target),
 		})
 	}
+
+	// Interface-level optimizations (EEE, Interrupt Coalescing) via ethtool
+	ifaces := getActiveIPv4Interfaces()
+	for _, iface := range ifaces {
+		// EEE (Energy Efficient Ethernet)
+		eeeStatus := readEthtoolEEE(ctx, iface.Name)
+		if eeeStatus != "" {
+			opts = append(opts, Optimization{
+				ID:           fmt.Sprintf("linux_eee_%s", iface.Name),
+				Name:         fmt.Sprintf("NIC Energy Efficient Ethernet (%s)", iface.Name),
+				Description:  "Disable transceiver Low Power Idle (LPI) sleep states to eliminate wake-up latency jitter and packet drop.",
+				CurrentValue: eeeStatus,
+				TargetValue:  "Disabled",
+				Command:      fmt.Sprintf("ethtool --set-eee %s eee off", iface.Name),
+			})
+		}
+
+		// Interrupt Coalescing
+		coalesceStatus := readEthtoolCoalesce(ctx, iface.Name)
+		if coalesceStatus != "" {
+			opts = append(opts, Optimization{
+				ID:           fmt.Sprintf("linux_coalesce_%s", iface.Name),
+				Name:         fmt.Sprintf("NIC Adaptive Interrupt Coalescing (%s)", iface.Name),
+				Description:  "Enable dynamic hardware interrupt moderation for microsecond latency responses without packet loss.",
+				CurrentValue: coalesceStatus,
+				TargetValue:  "Adaptive RX: on",
+				Command:      fmt.Sprintf("ethtool -C %s adaptive-rx on", iface.Name),
+			})
+		}
+	}
+
 	return opts, nil
 }
 
@@ -87,6 +119,7 @@ func Apply(ctx context.Context, dryRun bool) ([]StepResult, error) {
 
 		if dryRun {
 			sr.Skipped = true
+			sr.DryRun = true
 			sr.Message = "Dry run (no changes applied)"
 			results = append(results, sr)
 			continue
@@ -105,13 +138,35 @@ func Apply(ctx context.Context, dryRun bool) ([]StepResult, error) {
 			continue
 		}
 
-		out, err := writeSysctl(ctx, opt.ID, opt.TargetValue)
-		if err != nil {
-			sr.Err = fmt.Errorf("%v (%s)", err, out)
-		} else {
-			sr.Applied = true
-			sr.Message = fmt.Sprintf("Set %s = %s", opt.ID, opt.TargetValue)
+		switch {
+		case strings.HasPrefix(opt.ID, "linux_eee_"):
+			ifaceName := strings.TrimPrefix(opt.ID, "linux_eee_")
+			out, err := runCommand(ctx, "ethtool", "--set-eee", ifaceName, "eee", "off")
+			if err != nil {
+				sr.Err = fmt.Errorf("%v (%s)", err, out)
+			} else {
+				sr.Applied = true
+				sr.Message = fmt.Sprintf("Disabled EEE on %s", ifaceName)
+			}
+		case strings.HasPrefix(opt.ID, "linux_coalesce_"):
+			ifaceName := strings.TrimPrefix(opt.ID, "linux_coalesce_")
+			out, err := runCommand(ctx, "ethtool", "-C", ifaceName, "adaptive-rx", "on")
+			if err != nil {
+				sr.Err = fmt.Errorf("%v (%s)", err, out)
+			} else {
+				sr.Applied = true
+				sr.Message = fmt.Sprintf("Enabled Adaptive RX coalescing on %s", ifaceName)
+			}
+		default:
+			out, err := writeSysctl(ctx, opt.ID, opt.TargetValue)
+			if err != nil {
+				sr.Err = fmt.Errorf("%v (%s)", err, out)
+			} else {
+				sr.Applied = true
+				sr.Message = fmt.Sprintf("Set %s = %s", opt.ID, opt.TargetValue)
+			}
 		}
+
 		results = append(results, sr)
 	}
 
@@ -119,7 +174,6 @@ func Apply(ctx context.Context, dryRun bool) ([]StepResult, error) {
 }
 
 func readSysctl(ctx context.Context, key string) string {
-	// Try reading directly from /proc/sys first
 	procPath := "/proc/sys/" + strings.ReplaceAll(key, ".", "/")
 	if data, err := os.ReadFile(procPath); err == nil {
 		return strings.TrimSpace(string(data))
@@ -141,4 +195,77 @@ func writeSysctl(ctx context.Context, key, val string) (string, error) {
 	cmd.Stderr = &out
 	err := cmd.Run()
 	return strings.TrimSpace(out.String()), err
+}
+
+func runCommand(ctx context.Context, name string, args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, name, args...)
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+	err := cmd.Run()
+	return strings.TrimSpace(out.String()), err
+}
+
+func readEthtoolEEE(ctx context.Context, iface string) string {
+	out, err := runCommand(ctx, "ethtool", "--show-eee", iface)
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "EEE status:") {
+			parts := strings.Split(line, ":")
+			if len(parts) >= 2 {
+				val := strings.TrimSpace(parts[1])
+				if strings.Contains(strings.ToLower(val), "enabled") {
+					return "Enabled"
+				}
+				return "Disabled"
+			}
+		}
+	}
+	return ""
+}
+
+func readEthtoolCoalesce(ctx context.Context, iface string) string {
+	out, err := runCommand(ctx, "ethtool", "-c", iface)
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "Adaptive RX:") {
+			return line
+		}
+	}
+	return ""
+}
+
+func getActiveIPv4Interfaces() []net.Interface {
+	var active []net.Interface
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return active
+	}
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		hasIPv4 := false
+		for _, addr := range addrs {
+			ipNet, ok := addr.(*net.IPNet)
+			if ok && ipNet.IP.To4() != nil && !ipNet.IP.IsLoopback() && !ipNet.IP.IsLinkLocalUnicast() {
+				hasIPv4 = true
+				break
+			}
+		}
+		if hasIPv4 {
+			active = append(active, iface)
+		}
+	}
+	return active
 }

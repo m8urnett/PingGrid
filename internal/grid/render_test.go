@@ -216,3 +216,21 @@ func TestRenderExtraCellsNoColor(t *testing.T) {
 		t.Errorf("cell 31 (extra slot) expected frame color %+v, got %+v", DefaultColorFrame, cCell31)
 	}
 }
+
+func BenchmarkRender256Hosts(b *testing.B) {
+	cfg := DefaultConfig()
+	results := make([]scanner.HostResult, 256)
+	for i := range results {
+		results[i] = scanner.HostResult{
+			IP:     net.IPv4(192, 168, byte(i/256), byte(i%256)),
+			Status: scanner.StatusOnline,
+		}
+	}
+
+	b.ResetTimer()
+	for b.Loop() {
+		if img := Render(cfg, results); img == nil {
+			b.Fatal("Render returned nil")
+		}
+	}
+}

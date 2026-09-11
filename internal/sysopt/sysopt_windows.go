@@ -5,6 +5,7 @@ package sysopt
 import (
 	"bytes"
 	"context"
+	"encoding/csv"
 	"fmt"
 	"net"
 	"os"
@@ -54,17 +55,68 @@ func Inspect(ctx context.Context) ([]Optimization, error) {
 		})
 	}
 
-	// 3. Firewall ICMP Fastpath
+	// 3. Firewall ICMP permission
 	exePath, _ := os.Executable()
 	fwStatus := getFirewallRuleStatus(ctx, "PingGrid ICMP Fastpath")
 	opts = append(opts, Optimization{
 		ID:           "win_firewall_fastpath",
-		Name:         "Windows Firewall Outbound ICMP Fastpath",
-		Description:  "Exempt PingGrid from outbound ICMP packet inspection queues in Windows Filtering Platform (WFP).",
+		Name:         "Windows Firewall Outbound ICMP Permission",
+		Description:  "Ensure PingGrid is permitted to send outbound ICMP echo requests through Windows Firewall.",
 		CurrentValue: fwStatus,
 		TargetValue:  "Configured",
 		Command:      fmt.Sprintf(`netsh advfirewall firewall add rule name="PingGrid ICMP Fastpath" dir=out action=allow program="%s" protocol=icmpv4`, exePath),
 	})
+
+	// 4. Global TCP Receive-Side Scaling (RSS)
+	rssState := getGlobalTCPRSS(ctx)
+	opts = append(opts, Optimization{
+		ID:           "win_global_rss",
+		Name:         "Global TCP Receive-Side Scaling (RSS)",
+		Description:  "Enable multi-core kernel network packet processing to prevent single CPU bottlenecking during high-concurrency sweeps.",
+		CurrentValue: rssState,
+		TargetValue:  "enabled",
+		Command:      "netsh int tcp set global rss=enabled",
+	})
+
+	// 5. Interface-Level Hardware Optimizations (RSS, EEE, Interrupt Moderation)
+	nicProps := queryNICAdvancedProperties(ctx)
+	for i, prop := range nicProps {
+		lowerDisp := strings.ToLower(prop.displayName)
+		if strings.Contains(lowerDisp, "receive side scaling") || strings.Contains(lowerDisp, "rss") {
+			opts = append(opts, Optimization{
+				ID:           fmt.Sprintf("win_nic_rss_%d", i),
+				Name:         fmt.Sprintf("NIC Receive Side Scaling (%s)", prop.adapterName),
+				Description:  "Distribute incoming packet receive processing across hardware queues and CPU cores to avoid NIC bottlenecking.",
+				CurrentValue: prop.displayValue,
+				TargetValue:  "Enabled",
+				Command:      formatNICPropertyCommand(prop.adapterName, prop.displayName, "Enabled"),
+				AdapterName:  prop.adapterName,
+				PropertyName: prop.displayName,
+			})
+		} else if strings.Contains(lowerDisp, "energy efficient") || strings.Contains(lowerDisp, "eee") || strings.Contains(lowerDisp, "green") {
+			opts = append(opts, Optimization{
+				ID:           fmt.Sprintf("win_nic_eee_%d", i),
+				Name:         fmt.Sprintf("NIC Energy Efficient Ethernet (%s)", prop.adapterName),
+				Description:  "Disable transceiver Low Power Idle (LPI) sleep states to eliminate wake-up latency jitter and first-packet drops.",
+				CurrentValue: prop.displayValue,
+				TargetValue:  "Disabled",
+				Command:      formatNICPropertyCommand(prop.adapterName, prop.displayName, "Disabled"),
+				AdapterName:  prop.adapterName,
+				PropertyName: prop.displayName,
+			})
+		} else if strings.Contains(lowerDisp, "interrupt moderation") {
+			opts = append(opts, Optimization{
+				ID:           fmt.Sprintf("win_nic_intmod_%d", i),
+				Name:         fmt.Sprintf("NIC Interrupt Moderation (%s)", prop.adapterName),
+				Description:  "Set hardware interrupt moderation to Adaptive for microsecond latency responses without packet loss.",
+				CurrentValue: prop.displayValue,
+				TargetValue:  "Adaptive",
+				Command:      formatNICPropertyCommand(prop.adapterName, prop.displayName, "Adaptive"),
+				AdapterName:  prop.adapterName,
+				PropertyName: prop.displayName,
+			})
+		}
+	}
 
 	return opts, nil
 }
@@ -83,6 +135,7 @@ func Apply(ctx context.Context, dryRun bool) ([]StepResult, error) {
 
 		if dryRun {
 			sr.Skipped = true
+			sr.DryRun = true
 			sr.Message = "Dry run (no changes applied)"
 			results = append(results, sr)
 			continue
@@ -94,8 +147,8 @@ func Apply(ctx context.Context, dryRun bool) ([]StepResult, error) {
 			continue
 		}
 
-		switch opt.ID {
-		case "win_neighbor_limit":
+		switch {
+		case opt.ID == "win_neighbor_limit":
 			if strings.Contains(opt.CurrentValue, "4096") {
 				sr.Skipped = true
 				sr.Message = "Already set to 4096 entries"
@@ -109,10 +162,10 @@ func Apply(ctx context.Context, dryRun bool) ([]StepResult, error) {
 				}
 			}
 
-		case "win_firewall_fastpath":
+		case opt.ID == "win_firewall_fastpath":
 			if opt.CurrentValue == "Configured" {
 				sr.Skipped = true
-				sr.Message = "Firewall fastpath rule already exists"
+				sr.Message = "Outbound ICMP permission rule already exists"
 			} else {
 				exePath, _ := os.Executable()
 				out, err := runNetsh(ctx, "advfirewall", "firewall", "add", "rule",
@@ -126,22 +179,48 @@ func Apply(ctx context.Context, dryRun bool) ([]StepResult, error) {
 					sr.Err = fmt.Errorf("%v (%s)", err, out)
 				} else {
 					sr.Applied = true
-					sr.Message = "Outbound ICMP fastpath rule registered in Windows Firewall"
+					sr.Message = "Outbound ICMP permission rule registered in Windows Firewall"
 				}
 			}
 
-		default:
-			if strings.HasPrefix(opt.ID, "win_iface_timers_") {
-				idxStr := strings.TrimPrefix(opt.ID, "win_iface_timers_")
-				idx, _ := strconv.Atoi(idxStr)
-				if idx > 0 {
-					out, err := runNetsh(ctx, "interface", "ipv4", "set", "interface", strconv.Itoa(idx), "basereachable=300000", "retransmit=200")
-					if err != nil {
-						sr.Err = fmt.Errorf("%v (%s)", err, out)
-					} else {
-						sr.Applied = true
-						sr.Message = fmt.Sprintf("Interface %d timers updated (Reachable: 300s, Retransmit: 200ms)", idx)
-					}
+		case opt.ID == "win_global_rss":
+			if strings.EqualFold(opt.CurrentValue, opt.TargetValue) {
+				sr.Skipped = true
+				sr.Message = "Global TCP RSS already enabled"
+			} else {
+				out, err := runNetsh(ctx, "int", "tcp", "set", "global", "rss=enabled")
+				if err != nil {
+					sr.Err = fmt.Errorf("%v (%s)", err, out)
+				} else {
+					sr.Applied = true
+					sr.Message = "Global TCP Receive-Side Scaling enabled"
+				}
+			}
+
+		case strings.HasPrefix(opt.ID, "win_nic_"):
+			if strings.EqualFold(opt.CurrentValue, opt.TargetValue) {
+				sr.Skipped = true
+				sr.Message = fmt.Sprintf("Already set to %s", opt.TargetValue)
+			} else {
+				out, err := setNICAdvancedProperty(ctx, opt.AdapterName, opt.PropertyName, opt.TargetValue)
+				if err != nil {
+					sr.Err = fmt.Errorf("%v (%s)", err, out)
+				} else {
+					sr.Applied = true
+					sr.Message = fmt.Sprintf("%s updated to %s", opt.Name, opt.TargetValue)
+				}
+			}
+
+		case strings.HasPrefix(opt.ID, "win_iface_timers_"):
+			idxStr := strings.TrimPrefix(opt.ID, "win_iface_timers_")
+			idx, _ := strconv.Atoi(idxStr)
+			if idx > 0 {
+				out, err := runNetsh(ctx, "interface", "ipv4", "set", "interface", strconv.Itoa(idx), "basereachable=300000", "retransmit=200")
+				if err != nil {
+					sr.Err = fmt.Errorf("%v (%s)", err, out)
+				} else {
+					sr.Applied = true
+					sr.Message = fmt.Sprintf("Interface %d timers updated (Reachable: 300s, Retransmit: 200ms)", idx)
 				}
 			}
 		}
@@ -236,4 +315,95 @@ func getActiveIPv4Interfaces() []net.Interface {
 		}
 	}
 	return active
+}
+
+func getGlobalTCPRSS(ctx context.Context) string {
+	out, err := runNetsh(ctx, "int", "tcp", "show", "global")
+	if err != nil {
+		return "Unknown"
+	}
+	for _, line := range strings.Split(out, "\n") {
+		lower := strings.ToLower(line)
+		if strings.Contains(lower, "receive-side scaling state") {
+			parts := strings.Split(line, ":")
+			if len(parts) == 2 {
+				return strings.TrimSpace(parts[1])
+			}
+		}
+	}
+	return "Unknown"
+}
+
+type nicAdvProperty struct {
+	adapterName  string
+	displayName  string
+	displayValue string
+}
+
+func queryNICAdvancedProperties(ctx context.Context) []nicAdvProperty {
+	script := `Get-NetAdapterAdvancedProperty -DisplayName '*Receive Side Scaling*','*Energy Efficient*','*Interrupt Moderation*','*EEE*','*Green*' -ErrorAction SilentlyContinue | Select-Object Name, DisplayName, DisplayValue | ConvertTo-Csv -NoTypeInformation`
+	out, err := runPowerShell(ctx, script)
+	if err != nil || len(out) == 0 {
+		return nil
+	}
+
+	headerIdx := strings.Index(out, `"Name"`)
+	if headerIdx == -1 {
+		return nil
+	}
+
+	reader := csv.NewReader(strings.NewReader(out[headerIdx:]))
+	records, err := reader.ReadAll()
+	if err != nil || len(records) < 2 {
+		return nil
+	}
+
+	var props []nicAdvProperty
+	for _, rec := range records[1:] {
+		if len(rec) >= 3 {
+			props = append(props, nicAdvProperty{
+				adapterName:  strings.TrimSpace(rec[0]),
+				displayName:  strings.TrimSpace(rec[1]),
+				displayValue: strings.TrimSpace(rec[2]),
+			})
+		}
+	}
+	return props
+}
+
+func runPowerShell(ctx context.Context, script string) (string, error) {
+	cmd := exec.CommandContext(ctx, "powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	if err != nil {
+		return strings.TrimSpace(stderr.String()), err
+	}
+	return strings.TrimSpace(stdout.String()), nil
+}
+
+func formatNICPropertyCommand(adapterName, propertyName, value string) string {
+	escape := func(value string) string { return strings.ReplaceAll(value, "'", "''") }
+	return fmt.Sprintf(
+		"powershell -NoProfile -Command \"Set-NetAdapterAdvancedProperty -Name '%s' -DisplayName '%s' -DisplayValue '%s'\"",
+		escape(adapterName), escape(propertyName), escape(value),
+	)
+}
+
+func setNICAdvancedProperty(ctx context.Context, adapterName, propertyName, value string) (string, error) {
+	const script = `Set-NetAdapterAdvancedProperty -Name $env:PINGGRID_ADAPTER_NAME -DisplayName $env:PINGGRID_PROPERTY_NAME -DisplayValue $env:PINGGRID_PROPERTY_VALUE -ErrorAction Stop`
+	cmd := exec.CommandContext(ctx, "powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script)
+	cmd.Env = append(os.Environ(),
+		"PINGGRID_ADAPTER_NAME="+adapterName,
+		"PINGGRID_PROPERTY_NAME="+propertyName,
+		"PINGGRID_PROPERTY_VALUE="+value,
+	)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return strings.TrimSpace(stderr.String()), err
+	}
+	return strings.TrimSpace(stdout.String()), nil
 }
