@@ -35,7 +35,8 @@ param(
     [ValidateSet('windows', 'linux', 'darwin', 'all')]
     [string]$Target = 'windows',
 
-    [switch]$Verify
+    [switch]$Verify,
+    [switch]$PackageSource
 )
 
 $ErrorActionPreference = 'Stop'
@@ -169,6 +170,23 @@ function Build-Target {
     }
 }
 
+function New-SourceArchive {
+    param(
+        [string]$VersionString
+    )
+    $OutDir = 'bin'
+    if (-not (Test-Path $OutDir)) {
+        New-Item -ItemType Directory -Path $OutDir -Force | Out-Null
+    }
+    $ZipPath = Join-Path $OutDir "PingGrid-$VersionString-source.zip"
+    Write-Host "Creating source code archive -> $ZipPath..." -ForegroundColor Cyan
+    git archive --format=zip --prefix="PingGrid-$VersionString/" -o $ZipPath HEAD
+    if ($LASTEXITCODE -ne 0) {
+        throw "git archive failed with exit code $LASTEXITCODE"
+    }
+    Write-Host "  -> Successfully archived: $ZipPath" -ForegroundColor Green
+}
+
 switch ($Target) {
     'windows' {
         Build-Target -OsName 'windows' -Arch 'amd64' -OutputFile 'bin/pg.exe' -Cgo '1'
@@ -185,5 +203,10 @@ switch ($Target) {
         Build-Target -OsName 'linux' -Arch 'amd64' -OutputFile 'bin/pg-linux-amd64' -Cgo '0'
         Build-Target -OsName 'darwin' -Arch 'arm64' -OutputFile 'bin/pg-darwin-arm64' -Cgo '0'
         Build-Target -OsName 'darwin' -Arch 'amd64' -OutputFile 'bin/pg-darwin-amd64' -Cgo '0'
+        New-SourceArchive -VersionString $ApplicationVersion
     }
+}
+
+if ($PackageSource -and $Target -ne 'all') {
+    New-SourceArchive -VersionString $ApplicationVersion
 }

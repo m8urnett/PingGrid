@@ -12,7 +12,7 @@ LDFLAGS := -ldflags "\
 	-X github.com/m8urnett/PingGrid/internal/version.GitCommit=$(GIT_COMMIT) \
 	-X github.com/m8urnett/PingGrid/internal/version.BuildDate=$(BUILD_DATE)"
 
-.PHONY: build prepare-windows-resource build-windows build-linux build-darwin build-all run test test-race test-coverage vet lint fmt tidy deps verify-deps vuln check ci audit install clean
+.PHONY: build prepare-windows-resource build-windows build-linux build-darwin build-all package-source run test test-race test-coverage vet lint fmt tidy deps verify-deps vuln check ci audit install clean
 
 build: build-windows
 
@@ -29,7 +29,10 @@ build-darwin:
 	CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath $(LDFLAGS) -o bin/$(BINARY_NAME)-darwin-arm64 .
 	CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -trimpath $(LDFLAGS) -o bin/$(BINARY_NAME)-darwin-amd64 .
 
-build-all: build-windows build-linux build-darwin
+build-all: build-windows build-linux build-darwin package-source
+
+package-source:
+	git archive --format=zip --prefix=PingGrid-source/ -o bin/PingGrid-source.zip HEAD
 
 run:
 	go run -trimpath $(LDFLAGS) .
