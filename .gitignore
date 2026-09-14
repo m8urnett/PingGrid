@@ -1,8 +1,10 @@
-# Binaries
-/PingGrid
-/PingGrid.exe
-/pg
-/pg.exe
+# Binaries & build artifacts
+PingGrid
+PingGrid.exe
+pg
+pg.exe
+bin/
+*.exe
 *.test
 *.out
 
