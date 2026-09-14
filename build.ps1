@@ -130,7 +130,8 @@ function Build-Target {
         [string]$OsName,
         [string]$Arch,
         [string]$OutputFile,
-        [string]$Cgo = "1"
+        [string]$Cgo = "1",
+        [string]$ArmVersion = ""
     )
 
     Write-Host "Building for $OsName/$Arch -> $OutputFile..." -ForegroundColor Cyan
@@ -154,6 +155,9 @@ function Build-Target {
     $env:GOOS = $OsName
     $env:GOARCH = $Arch
     $env:CGO_ENABLED = $Cgo
+    if ($ArmVersion) {
+        $env:GOARM = $ArmVersion
+    }
 
     try {
         go build -trimpath -ldflags $LdFlags -o $OutputFile .
@@ -167,6 +171,7 @@ function Build-Target {
         Remove-Item Env:GOOS -ErrorAction SilentlyContinue
         Remove-Item Env:GOARCH -ErrorAction SilentlyContinue
         Remove-Item Env:CGO_ENABLED -ErrorAction SilentlyContinue
+        Remove-Item Env:GOARM -ErrorAction SilentlyContinue
     }
 }
 
@@ -193,6 +198,8 @@ switch ($Target) {
     }
     'linux' {
         Build-Target -OsName 'linux' -Arch 'amd64' -OutputFile 'bin/pg-linux-amd64' -Cgo '0'
+        Build-Target -OsName 'linux' -Arch 'arm64' -OutputFile 'bin/pg-linux-arm64' -Cgo '0'
+        Build-Target -OsName 'linux' -Arch 'arm' -OutputFile 'bin/pg-linux-armv7' -Cgo '0' -ArmVersion '7'
     }
     'darwin' {
         Build-Target -OsName 'darwin' -Arch 'arm64' -OutputFile 'bin/pg-darwin-arm64' -Cgo '0'
@@ -201,6 +208,8 @@ switch ($Target) {
     'all' {
         Build-Target -OsName 'windows' -Arch 'amd64' -OutputFile 'bin/pg.exe' -Cgo '1'
         Build-Target -OsName 'linux' -Arch 'amd64' -OutputFile 'bin/pg-linux-amd64' -Cgo '0'
+        Build-Target -OsName 'linux' -Arch 'arm64' -OutputFile 'bin/pg-linux-arm64' -Cgo '0'
+        Build-Target -OsName 'linux' -Arch 'arm' -OutputFile 'bin/pg-linux-armv7' -Cgo '0' -ArmVersion '7'
         Build-Target -OsName 'darwin' -Arch 'arm64' -OutputFile 'bin/pg-darwin-arm64' -Cgo '0'
         Build-Target -OsName 'darwin' -Arch 'amd64' -OutputFile 'bin/pg-darwin-amd64' -Cgo '0'
         New-SourceArchive -VersionString $ApplicationVersion
